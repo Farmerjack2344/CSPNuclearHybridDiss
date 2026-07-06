@@ -25,12 +25,14 @@ class Stream:
 
 # Pump
 class Pump:
-    def __init__(self, stream, eta_isentropic=0.8, pressure_ratio=None, p_out=None):
+    def __init__(self, stream, eta_isentropic=0.8, pressure_ratio=None, p_out=None, bleed=None):
         self.stream = stream
         self.eta_isentropic = eta_isentropic
         self.pressure_ratio = pressure_ratio
-        self.p_out = p_out
+        self.P_out = p_out
+        self.bleed = bleed
         self.power = None
+
 
         self.h_out = None
         self.T_out = None
@@ -45,19 +47,21 @@ class Pump:
         if s_in is None:
             s_in = CP.PropsSI('S', 'T', T_in,'P', P_in, self.stream.fl)
 
-        if self.p_out == None:
-            self.p_out = P_in * self.pressure_ratio
+        if self.P_out == None:
+            self.P_out = P_in * self.pressure_ratio
 
-        h_outs = CP.PropsSI('H', 'S', s_in, 'P', self.p_out, self.stream.fluid)
+        h_outs = CP.PropsSI('H', 'S', s_in, 'P', self.P_out, self.stream.fluid)
 
         self.h_out = ((h_outs - h_in)/self.eta_isentropic) + h_in
-        self.T_out = CP.PropsSI('T', 'H', self.h_out, 'P', self.p_out, self.stream.fluid)
-        self.s_out = CP.PropsSI('S', 'T', self.T_out, 'P', self.p_out, self.stream.fluid)
+        self.T_out = CP.PropsSI('T', 'H', self.h_out, 'P', self.P_out, self.stream.fluid)
+        self.s_out = CP.PropsSI('S', 'T', self.T_out, 'P', self.P_out, self.stream.fluid)
 
         self.power = self.stream.m_dot * (self.h_out - h_in)
 
+        return self.power
+
     def report(self):
-        results = []
+        results = {'T_in': self.stream.T_in,'T_out': self.stream.T_out,'P_in':self.stream.p,'P_out':self.P_out, 'h_in': self.stream.h,'h_out': self.h_out, 's_in': self.stream.s,'s_out': self.s_out}
         return results
 
 
@@ -65,8 +69,71 @@ class Pump:
 
 
 #Turbine
+class Turbine:
+    def __init__(self, stream, eta_isentropic=0.8, pressure_ratio=None, p_out=None, bleed=None):
+        self.stream = stream
+        self.eta_isentropic = eta_isentropic
+        self.pressure_ratio = pressure_ratio
+        self.P_out = p_out
+        self.bleed = bleed
+        self.power = None
+
+        self.h_out = None
+        self.T_out = None
+        self.s_out = None
+
+    def solve(self):
+        h_in = self.stream.h
+        T_in = self.stream.T
+        P_in = self.stream.p
+        s_in = self.stream.s
+
+        if s_in is None:
+            s_in = CP.PropsSI('S', 'T', T_in, 'P', P_in, self.stream.fl)
+
+        if self.P_out == None:
+            self.P_out = P_in * self.pressure_ratio
+
+        h_outs = CP.PropsSI('H', 'S', s_in, 'P', self.P_out, self.stream.fluid)
+
+        self.h_out = h_in - self.stream.h - self.eta_isentropic * (self.stream.h_out - h_outs)
+
+        self.T_out = CP.PropsSI('T', 'H', self.h_out, 'P', self.P_out, self.stream.fluid)
+        self.s_out = CP.PropsSI('S', 'T', self.T_out, 'P', self.P_out, self.stream.fluid)
+
+        self.power = self.stream.m_dot * (self.h_out - h_in)
+
+        return self.power
+
+    def report(self):
+        results = {'T_in': self.stream.T_in, 'T_out': self.stream.T_out, 'P_in': self.stream.p, 'P_out': self.P_out,
+                   'h_in': self.stream.h, 'h_out': self.h_out, 's_in': self.stream.s, 's_out': self.s_out}
+        return results
+
 
 #Heater
+class Heater:
+    def __init__(self, stream1, stream2, effectivness, T_hot_out=None, T_cold_out=None, P_hot_out=None, P_cold_out=None):
+        self.stream1 = stream1 # Has T_cold in
+        self.stream2 = stream2 # Has T_hot in
+        self.effectivness = effectivness
+
+        self.T_hot_out = T_hot_out
+        self.P_hot_out = P_hot_out
+        self.h_hot_out = None
+        self.s_hot_out = None
+
+        self.T_cold_out = T_cold_out
+        self.P_cold_out = P_cold_out
+        self.h_cold_out = None
+        self.s_cold_out = None
+
+    def solve(self):
+        pass
+
+    def report(self):
+        pass
+
 
 #Condenser
 
