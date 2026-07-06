@@ -65,9 +65,6 @@ class Pump:
         return results
 
 
-
-
-
 #Turbine
 class Turbine:
     def __init__(self, stream, eta_isentropic=0.8, pressure_ratio=None, p_out=None, bleed=None):
@@ -89,7 +86,7 @@ class Turbine:
         s_in = self.stream.s
 
         if s_in is None:
-            s_in = CP.PropsSI('S', 'T', T_in, 'P', P_in, self.stream.fl)
+            s_in = CP.PropsSI('S', 'T', T_in, 'P', P_in, self.stream.fluid)
 
         if self.P_out == None:
             self.P_out = P_in * self.pressure_ratio
@@ -128,8 +125,43 @@ class Heater:
         self.h_cold_out = None
         self.s_cold_out = None
 
+        self.Q = None
+
     def solve(self):
-        pass
+        C_stream1 = self.stream1.m_dot * (CP.PropsSI('C','T',self.stream1.T,'P',self.stream1.P, self.stream1.fluid))
+        C_stream2 = self.stream2.m_dot * (CP.PropsSI('C','T',self.stream2.T,'P',self.stream2.P, self.stream2.fluid))
+
+        if C_stream1 < C_stream2:
+            C_min = C_stream1
+        else:
+            C_min = C_stream2
+
+        Qmax = C_min * (self.stream2.T - self.stream1.T)
+
+        Q = self.effectivness * Qmax
+
+        # Energy balance, cold side: Q = m_dot_cold * (h_cold_out - h_cold_in)
+        h_cold_in = self.stream1.h
+        h_cold_out = h_cold_in + Q / self.stream1.m_dot
+
+        # Energy balance, hot side: Q = m_dot_hot * (h_hot_in - h_hot_out)
+        h_hot_in = self.stream2.h
+        h_hot_out = h_hot_in - Q / self.stream2.m_dot
+
+        # Back out T (and s, if you want it) from h and P
+        self.P_cold_out = self.stream1.P
+        self.h_cold_out = h_cold_out
+        self.T_cold_out = CP.PropsSI('T', 'H', h_cold_out, 'P', self.P_cold_out, self.stream.fluid)
+        self.s_cold_out = CP.PropsSI('S', 'H', h_cold_out, 'P', self.P_cold_out, self.stream.fluid)
+
+        self.P_hot_out = self.stream2.P
+        self.h_hot_out = h_hot_out
+        self.T_hot_out = CP.PropsSI('T', 'H', h_hot_out, 'P', self.P_hot_out, self.stream.fluid)
+        self.s_hot_out = CP.PropsSI('S', 'H', h_hot_out, 'P', self.P_hot_out, self.stream.fluid)
+
+        self.Q = Q
+
+
 
     def report(self):
         pass
