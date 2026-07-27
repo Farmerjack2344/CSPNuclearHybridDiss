@@ -4,15 +4,33 @@ from tespy.components import (Compressor,Condenser, HeatExchanger,
                               SimpleHeatExchanger,Turbine,Splitter,
                               Merge)
 
-
+AP1000_plant = Network()
 #Components
 # HP Turbine block
-
+HP_turbine_stg_1 = Turbine('HP Turbine Stage 1')
+Spliter_stg_1 = Splitter('Spliter Stage 1')
+HP_turbine_stg_2 = Turbine('HP Turbine Stage 2')
+Spliter_stg_2 = Splitter('Spliter Stage 2')
+HP_turbine_stg_3 = Turbine('HP Turbine Stage 3')
+Spliter_stg_3 = Splitter('Spliter Stage 3')
+HP_turbine_stg_4 = Turbine('HP Turbine Stage 4')
+Spliter_stg_4 = Splitter('Spliter Stage 4')
+HP_turbine_stg_5 = Turbine('HP Turbine Stage 5')
+Spliter_stg_5 = Splitter('Spliter Stage 5')
 
 # Interstage heat block
 
 
 # LP Turbine block
+LP_turbine_stg_1 = Turbine('LP Turbine Stage 1')
+
+LP_turbine_stg_2 = Turbine('LP Turbine Stage 2')
+LP_spliter_stg_1 = Splitter('LP Spliter Stage 1')
+
+LP_turbine_stg_3 = Turbine('LP Turbine Stage 3')
+LP_spliter_stg_2 = Splitter('LP Spliter Stage 2')
+
+
 
 
 # Condenser
@@ -22,6 +40,17 @@ from tespy.components import (Compressor,Condenser, HeatExchanger,
 # HP
 
 
+dearator = Merge('Dearator')
+
+# Setup
+AP1000_plant.units.set_defaults(
+    temperature="K",
+    pressure="bar",
+    pressure_difference="bar",
+    enthalpy="J/kg",
+    heat="W",
+    power="W",
+)
 #1 Primary Loop: Reactor and NaK loop
 
 
