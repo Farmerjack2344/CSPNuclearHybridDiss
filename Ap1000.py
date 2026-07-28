@@ -18,7 +18,7 @@ Spliter_stg_4 = Splitter('Spliter Stage 4')
 HP_turbine_stg_5 = Turbine('HP Turbine Stage 5')
 Spliter_stg_5 = Splitter('Spliter Stage 5')
 
-# Interstage heat block
+# Interstage superheater block
 
 
 # LP Turbine block
@@ -31,13 +31,25 @@ LP_turbine_stg_3 = Turbine('LP Turbine Stage 3')
 LP_spliter_stg_2 = Splitter('LP Spliter Stage 2')
 
 
-
-
 # Condenser
 
-# LP heaters
 
-# HP
+
+# LP heaters
+#HeatExchanger - 2 IN and 2 OUT
+#SimpleHeatExchanger - 1 IN and 1 OUT
+
+LP_feedwater_heater_stg1 = HeatExchanger('LP Feedwater Heater 1')
+LP_feedwater_heater_stg2 = HeatExchanger('LP Feedwater Heater 2')
+LP_feedwater_heater_stg3 = HeatExchanger('LP Feedwater Heater 3')
+LP_feedwater_heater_stg4 = HeatExchanger('LP Feedwater Heater 4')
+
+
+# HP Heaters
+HP_feedwater_heater_stg1 = HeatExchanger('HP Feedwater Heater 1')
+HP_feedwater_heater_stg2 = HeatExchanger('HP Feedwater Heater 2')
+HP_feedwater_heater_stg3 = HeatExchanger('HP Feedwater Heater 3')
+HP_feedwater_heater_stg4 = HeatExchanger('HP Feedwater Heater 4')
 
 
 dearator = Merge('Dearator')
