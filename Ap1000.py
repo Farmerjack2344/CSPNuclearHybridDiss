@@ -1,48 +1,81 @@
 import components
 from tespy.networks import Network
-from tespy.components import (Compressor,Condenser, HeatExchanger,
-                              SimpleHeatExchanger,Turbine,Splitter,
-                              Merge)
+from tespy.components import (Compressor, Condenser, HeatExchanger, Turbine, Splitter,
+                              Merge, CycleCloser, Drum, Source, Sink)
+from tespy.components.power.generator import Generator
 
 AP1000_plant = Network()
 #Components
+cycle_closer = CycleCloser("cycle closer")
+# Steam generator
+reactor_in = Source('Reactor In')
+reactor_out = Sink('Reactor Out')
+
+steam_generator = HeatExchanger('Steam Generator')
+
 # HP Turbine block
 HP_turbine_stg_1 = Turbine('HP Turbine Stage 1')
-Spliter_stg_1 = Splitter('Spliter Stage 1')
+Spliter_stg_1 = Splitter('Spliter Stage 1', num_out=2)
 HP_turbine_stg_2 = Turbine('HP Turbine Stage 2')
-Spliter_stg_2 = Splitter('Spliter Stage 2')
+Spliter_stg_2 = Splitter('Spliter Stage 2', num_out=2)
 HP_turbine_stg_3 = Turbine('HP Turbine Stage 3')
-Spliter_stg_3 = Splitter('Spliter Stage 3')
+Spliter_stg_3 = Splitter('Spliter Stage 3', num_out=2)
 HP_turbine_stg_4 = Turbine('HP Turbine Stage 4')
-Spliter_stg_4 = Splitter('Spliter Stage 4')
+Spliter_stg_4 = Splitter('Spliter Stage 4', num_out=2)
 HP_turbine_stg_5 = Turbine('HP Turbine Stage 5')
-Spliter_stg_5 = Splitter('Spliter Stage 5')
+Spliter_stg_5 = Splitter('Spliter Stage 5', num_out=2)
 
 # Interstage superheater block
+#HeatExchanger - 2 IN and 2 OUT
+#SimpleHeatExchanger - 1 IN and 1 OUT
+moisture_seperator_heater = Drum("Moisture Seperator Heater")
+
+interstage_heater_1 = HeatExchanger('Interstage Heater 1')
+interstage_heater_2 = HeatExchanger('Interstage Heater 2')
+
+interstage_merge = Merge('Interstage Merge',num_in=2)
 
 
 # LP Turbine block
 LP_turbine_stg_1 = Turbine('LP Turbine Stage 1')
+LP_spliter_stg_1 = Splitter('LP Spliter Stage 1', num_out=2)
 
 LP_turbine_stg_2 = Turbine('LP Turbine Stage 2')
-LP_spliter_stg_1 = Splitter('LP Spliter Stage 1')
+LP_spliter_stg_2 = Splitter('LP Spliter Stage 2', num_out=2)
 
 LP_turbine_stg_3 = Turbine('LP Turbine Stage 3')
-LP_spliter_stg_2 = Splitter('LP Spliter Stage 2')
+LP_spliter_stg_3 = Splitter('LP Spliter Stage 3', num_out=2)
+
+LP_turbine_stg_4 = Turbine('LP Turbine Stage 4')
+LP_spliter_stg_4 = Splitter('LP Spliter Stage 4', num_out=2)
+
+LP_turbine_stg_5 = Turbine('LP Turbine Stage 5')
+
+#Generator
+generator = Generator('Generator')
 
 
 # Condenser
 
 
+## Cooling water
+cooling_water_in = Source('Cooling Water In')
+cooling_water_out = Sink('Cooling Water Out')
+
 
 # LP heaters
+#Combine the steam(from the low pressure turbine) and some of the condensate from the condenser - This will go into the shell
+#What comes out of the shell will be combined with another turbines exhaust
+
 #HeatExchanger - 2 IN and 2 OUT
 #SimpleHeatExchanger - 1 IN and 1 OUT
 
 LP_feedwater_heater_stg1 = HeatExchanger('LP Feedwater Heater 1')
 LP_feedwater_heater_stg2 = HeatExchanger('LP Feedwater Heater 2')
 LP_feedwater_heater_stg3 = HeatExchanger('LP Feedwater Heater 3')
-LP_feedwater_heater_stg4 = HeatExchanger('LP Feedwater Heater 4')
+
+LP_feedwater_heater_stg4 = HeatExchanger('LP Feedwater Heater 4')# Last stage is a normal 2 in and 2 out
+# The extra line is just to a pump
 
 
 # HP Heaters
@@ -52,7 +85,7 @@ HP_feedwater_heater_stg3 = HeatExchanger('HP Feedwater Heater 3')
 HP_feedwater_heater_stg4 = HeatExchanger('HP Feedwater Heater 4')
 
 
-dearator = Merge('Dearator')
+dearator = Merge('Dearator', num_in=3)
 
 # Setup
 AP1000_plant.units.set_defaults(
@@ -63,6 +96,8 @@ AP1000_plant.units.set_defaults(
     heat="W",
     power="W",
 )
+
+#Connections
 #1 Primary Loop: Reactor and NaK loop
 
 
