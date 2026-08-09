@@ -1,7 +1,7 @@
 import components
 from tespy.networks import Network
 from tespy.components import (Compressor, Condenser, HeatExchanger, Turbine, Splitter,
-                              Merge, CycleCloser, Drum, Source, Sink, Pump)
+                              Merge, CycleCloser, Drum, Source, Sink, Pump, DropletSeparator)
 from tespy.components.power.generator import Generator
 from tespy.connections import Connection
 
@@ -21,19 +21,23 @@ pre_turbine_split = Splitter('Pre-Turbine Split', num_out=2)
 # HP Turbine block
 HP_turbine_stg_1 = Turbine('HP Turbine Stage 1')
 Spliter_stg_1 = Splitter('Spliter Stage 1', num_out=2)
+
 HP_turbine_stg_2 = Turbine('HP Turbine Stage 2')
 Spliter_stg_2 = Splitter('Spliter Stage 2', num_out=2)
+
 HP_turbine_stg_3 = Turbine('HP Turbine Stage 3')
 Spliter_stg_3 = Splitter('Spliter Stage 3', num_out=2)
+
 HP_turbine_stg_4 = Turbine('HP Turbine Stage 4')
 Spliter_stg_4 = Splitter('Spliter Stage 4', num_out=2)
-HP_turbine_stg_5 = Turbine('HP Turbine Stage 5')
-Spliter_stg_5 = Splitter('Spliter Stage 5', num_out=2)
+
+# HP_turbine_stg_5 = Turbine('HP Turbine Stage 5')
+# Spliter_stg_5 = Splitter('Spliter Stage 5', num_out=2)
 
 # Interstage superheater block
 #HeatExchanger - 2 IN and 2 OUT
 #SimpleHeatExchanger - 1 IN and 1 OUT
-moisture_seperator_heater = Drum("Moisture Seperator Heater")
+moisture_seperator_heater = DropletSeparator("Moisture Seperator Heater")
 
 interstage_heater_1 = HeatExchanger('Interstage Heater 1')
 interstage_heater_2 = HeatExchanger('Interstage Heater 2')
@@ -87,11 +91,11 @@ LP_feedwater_heater_stg3 = HeatExchanger('LP Feedwater Heater 3')
 LP_feedwater_heater_stg4 = HeatExchanger('LP Feedwater Heater 4')# Last stage is a normal 2 in and 2 out
 # The extra line is just to a pump
 LP_heater_merge_stg1 = Merge('LP Heater Merge 1', num_in=2)
-LP_heater_merge_stg2 = Merge('LP Heater Merge 1', num_in=2)
-LP_heater_merge_stg3 = Merge('LP Heater Merge 1', num_in=2)
-LP_heater_merge_stg4 = Merge('LP Heater Merge 1', num_in=2)
+LP_heater_merge_stg2 = Merge('LP Heater Merge 2', num_in=2)
+LP_heater_merge_stg3 = Merge('LP Heater Merge 3', num_in=2)
+LP_heater_merge_stg4 = Merge('LP Heater Merge 4', num_in=2)
 
-dearator = Merge('Dearator', num_in=3)
+dearator = Merge('Deaerator', num_in=3)
 
 # HP Heaters
 HP_feedwater_pump = Pump('HP Feedwater Pump')
@@ -103,8 +107,8 @@ HP_feedwater_heater_stg2 = HeatExchanger('HP Feedwater Heater 2')
 # Setup
 AP1000_plant.units.set_defaults(
     temperature="K",
-    pressure="bar",
-    pressure_difference="bar",
+    pressure="Pa",
+    pressure_difference="Pa",
     enthalpy="J/kg",
     heat="W",
     power="W",
@@ -134,25 +138,73 @@ c3 =  Connection(steam_generator, "out2", pre_turbine_split, "in1",label="second
 
 #3.1 One stream going to the stage 2 interstage heater
 
-c4 = Connection(pre_turbine_split,"out1", interstage_heater_2, "in2", label="Initial bleed")
+c4 = Connection(pre_turbine_split,"out1", interstage_heater_2, "in1", label="Initial bleed")
+
 
 #3.2 On stream going to the turbine
-
-
-
+c5  = Connection(pre_turbine_split, "out2", HP_turbine_stg_1, "in1",
+                 label="Stream into the first turbine stage")
 
 #4 Streams going to the next stage of turbines
+c6 = Connection(HP_turbine_stg_1,'out1', Spliter_stg_1, "in1",
+                 label="HP Turbine stage 0")
+
+c7 = Connection(Spliter_stg_1, "out1", HP_turbine_stg_2, "in1", label="HP Turbine stage 1")
+c7_1 = Connection(Spliter_stg_1, "out2", interstage_heater_1, "in1", label="Interstage heater stage 1")
+
+c8 = Connection(HP_turbine_stg_2, "out2", Spliter_stg_2, "in1", label="HP Turbine stage 2")
+
+c9 = Connection(Spliter_stg_2, "out1", HP_turbine_stg_3, "in1", label="HP Turbine stage 3")
+c9_1 = Connection(Spliter_stg_2, "out2", HP_feedwater_heater_stg2, "in1", label="HP feedwater heater stage 2")
+
+c10 = Connection(HP_turbine_stg_3, "out1", Spliter_stg_3, "in1",label="HP Turbine stage 4")
+
+c11 = Connection(Spliter_stg_3, "out1", HP_turbine_stg_4, "in1", label="HP Turbine stage 5")
+c11_1 = Connection(Spliter_stg_3, "out2", HP_feedwater_heater_stg1, "in1", label="HP feedwater heater stage 1")
+
+c12 = Connection(HP_turbine_stg_4, "out1", Spliter_stg_4, "in1", label="HP Turbine stage 6")
 
 
-#5 Generator no thermodynamics here: just calculate power
-# Power should be calculated here too
+
+#Interstage Heaters
+c13 = Connection(Spliter_stg_4, "out1", moisture_seperator_heater, "in1", label="Moisture seperator heater")
+c14 = Connection(Spliter_stg_4, "out2", dearator, "in1", label="Dearator")
+
+#For moisture seperator out1 is liquid and out 2 is vapour
+c15 = Connection(moisture_seperator_heater,"out2", interstage_heater_1, "in2", label="Interstage heater 1")
+c16 = Connection(moisture_seperator_heater, "out1", LP_heater_merge_stg3, "in1",
+                 label="LP feedwater heater stage 3")
+
+c17 = Connection(interstage_heater_1, "out1", interstage_heater_2, "in2", label="Interstage heater stage 2")
+c18 = Connection(interstage_heater_1, "out2", interstage_merge, "in1", label="Interstage merge 1")
+
+c19 = Connection(interstage_heater_2, "out1", LP_turbine_stg_1, "in1", label="LP turbine stage 1")
+c20 = Connection(interstage_heater_2, "out2", interstage_merge, "in2", label="Interstage merge 2")
+
+c21 = Connection(interstage_merge, "out1", LP_heater_merge_stg4, "in1",
+                 label="LP interstage merge into stage 4")
+
+#5 Low pressure Turbines
+c22 = Connection(LP_turbine_stg_1, "out1", LP_spliter_stg_1, "in1", label="LP spliter stage 1")
+
+c23 = Connection(LP_spliter_stg_1, "out1", LP_turbine_stg_2, "in1", label="LP turbine stage 2 En")
+c24 = Connection(LP_spliter_stg_1, "out2", LP_heater_merge_stg4, "in2", label="LP heater stage 4 En")
 
 
-#6 Condenser comes next (This is where one of the configuration will interface)
+c25 = Connection(LP_turbine_stg_2, "out1", LP_spliter_stg_2, "in1", label="LP turbine stage 2 Ex")
 
-#7 Heater
+c26 = Connection(LP_spliter_stg_2, "out1", LP_turbine_stg_3, "in1", label="LP turbine stage 3 En")
+c27 = Connection(LP_spliter_stg_2, "out2", LP_heater_merge_stg3, "in2", label="LP turbine stage 3 En")
 
-#8 Deaerator
 
-#9 Heater
+
+#6 Power bus connections
+
+#7 Condenser comes next (This is where one of the configuration will interface)
+
+#8 Heater
+
+#9 Deaerator
+
+#10 Heater
 # The output can come from step one
