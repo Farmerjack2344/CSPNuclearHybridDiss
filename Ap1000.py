@@ -4,11 +4,14 @@ import components
 from tespy.networks import Network
 from tespy.components import (Compressor, Condenser, HeatExchanger, Turbine, Splitter,
                               Merge, CycleCloser, Drum, Source, Sink, Pump, DropletSeparator,
-                              PowerBus,PowerSink, Motor
+                              PowerBus, PowerSink, Motor, SteamTurbine
                               )
 from tespy.components.power.generator import Generator
 from tespy.connections import Connection, PowerConnection
 
+coolant = {"water":1}
+working_fluid = {"water":1}
+cooling_fluid = {"water":1}
 
 from components import Deareator
 
@@ -24,16 +27,16 @@ steam_generator = HeatExchanger('Steam Generator')
 pre_turbine_split = Splitter('Pre-Turbine Split', num_out=2)
 
 # HP Turbine block
-HP_turbine_stg_1 = Turbine('HP Turbine Stage 1')
+HP_turbine_stg_1 = SteamTurbine('HP Turbine Stage 1')
 Splitter_stg_1 = Splitter('Spliter Stage 1', num_out=2)
 
-HP_turbine_stg_2 = Turbine('HP Turbine Stage 2')
+HP_turbine_stg_2 = SteamTurbine('HP Turbine Stage 2')
 Splitter_stg_2 = Splitter('Spliter Stage 2', num_out=2)
 
-HP_turbine_stg_3 = Turbine('HP Turbine Stage 3')
+HP_turbine_stg_3 = SteamTurbine('HP Turbine Stage 3')
 Splitter_stg_3 = Splitter('Spliter Stage 3', num_out=2)
 
-HP_turbine_stg_4 = Turbine('HP Turbine Stage 4')
+HP_turbine_stg_4 = SteamTurbine('HP Turbine Stage 4')
 Splitter_stg_4 = Splitter('Spliter Stage 4', num_out=2)
 
 # HP_turbine_stg_5 = Turbine('HP Turbine Stage 5')
@@ -51,16 +54,16 @@ interstage_merge = Merge('Interstage Merge',num_in=2)
 
 
 # LP Turbine block
-LP_turbine_stg_1 = Turbine('LP Turbine Stage 1')
+LP_turbine_stg_1 = SteamTurbine('LP Turbine Stage 1')
 LP_splitter_stg_1 = Splitter('LP Spliter Stage 1', num_out=2)
 
-LP_turbine_stg_2 = Turbine('LP Turbine Stage 2')
+LP_turbine_stg_2 = SteamTurbine('LP Turbine Stage 2')
 LP_splitter_stg_2 = Splitter('LP Spliter Stage 2', num_out=2)
 
-LP_turbine_stg_3 = Turbine('LP Turbine Stage 3')
+LP_turbine_stg_3 = SteamTurbine('LP Turbine Stage 3')
 LP_splitter_stg_3 = Splitter('LP Spliter Stage 3', num_out=2)
 
-LP_turbine_stg_4 = Turbine('LP Turbine Stage 4')
+LP_turbine_stg_4 = SteamTurbine('LP Turbine Stage 4')
 LP_splitter_stg_4 = Splitter('LP Spliter Stage 4', num_out=2)
 
 LP_turbine_stg_5 = Turbine('LP Turbine Stage 5')
@@ -139,6 +142,8 @@ HP_feedwater_heater_stg2 = HeatExchanger('HP Feedwater Heater 2')
 
 
 
+
+
 # Setup
 AP1000_plant.units.set_defaults(
     temperature="K",
@@ -147,6 +152,7 @@ AP1000_plant.units.set_defaults(
     enthalpy="J/kg",
     heat="W",
     power="W",
+    mass_flow="kg/s"
 )
 
 #Connections
@@ -158,9 +164,12 @@ AP1000_plant.units.set_defaults(
 #The cold stream output can be a design parameter
 
 #Coolant into the SG
-c1 =  Connection(reactor_out, "out1", steam_generator, "in1",label = "primary_in")
+c1 =  Connection(reactor_out, "out1", steam_generator, "in1",
+                 label = "primary_in")
+
 #Coolant out of SG
-c2 =  Connection(steam_generator, "out1", reactor_in, "in1",label="primary out")
+c2 =  Connection(steam_generator, "out1", reactor_in, "in1",
+                 label="primary out")
 
 #Working fluid into SG
 c_fw1 = Connection(HP_feedwater_heater_stg2, "out2", cycle_closer, "in1",
@@ -170,12 +179,14 @@ c_fw2 = Connection(cycle_closer, "out1", steam_generator, "in2",
 
 #Seperate into 2 streams
 #Working fluid out of SG
-c3 =  Connection(steam_generator, "out2", pre_turbine_split, "in1",label="secondary out")
+c3 =  Connection(steam_generator, "out2", pre_turbine_split, "in1",
+                 label="secondary out")
 
 
 #3.1 One stream going to the stage 2 interstage heater
 
-c4 = Connection(pre_turbine_split,"out1", interstage_heater_2, "in1", label="Initial bleed")
+c4 = Connection(pre_turbine_split,"out1", interstage_heater_2, "in1",
+                label="Initial bleed")
 
 
 #3.2 On stream going to the turbine
@@ -186,26 +197,37 @@ c5  = Connection(pre_turbine_split, "out2", HP_turbine_stg_1, "in1",
 c6 = Connection(HP_turbine_stg_1,'out1', Splitter_stg_1, "in1",
                 label="HP Turbine stage 0")
 
-c7 = Connection(Splitter_stg_1, "out1", HP_turbine_stg_2, "in1", label="HP Turbine stage 1")
-c7_1 = Connection(Splitter_stg_1, "out2", interstage_heater_1, "in1", label="Interstage heater stage 1")
+c7 = Connection(Splitter_stg_1, "out1", HP_turbine_stg_2, "in1",
+                label="HP Turbine stage 1")
+c7_1 = Connection(Splitter_stg_1, "out2", interstage_heater_1, "in1",
+                  label="Interstage heater stage 1")
 
-c8 = Connection(HP_turbine_stg_2, "out1", Splitter_stg_2, "in1", label="HP Turbine stage 2")
+c8 = Connection(HP_turbine_stg_2, "out1", Splitter_stg_2, "in1",
+                label="HP Turbine stage 2")
 
-c9 = Connection(Splitter_stg_2, "out1", HP_turbine_stg_3, "in1", label="HP Turbine stage 3")
-c9_1 = Connection(Splitter_stg_2, "out2", HP_feedwater_heater_stg2, "in1", label="HP feedwater heater stage 2")
+c9 = Connection(Splitter_stg_2, "out1", HP_turbine_stg_3, "in1",
+                label="HP Turbine stage 3")
+c9_1 = Connection(Splitter_stg_2, "out2", HP_feedwater_heater_stg2, "in1",
+                  label="HP feedwater heater stage 2")
 
-c10 = Connection(HP_turbine_stg_3, "out1", Splitter_stg_3, "in1", label="HP Turbine stage 4")
+c10 = Connection(HP_turbine_stg_3, "out1", Splitter_stg_3, "in1",
+                 label="HP Turbine stage 4")
 
-c11 = Connection(Splitter_stg_3, "out1", HP_turbine_stg_4, "in1", label="HP Turbine stage 5")
-c11_1 = Connection(Splitter_stg_3, "out2", HP_feedwater_merger, "in1", label="HP feedwater heater stage 1")
+c11 = Connection(Splitter_stg_3, "out1", HP_turbine_stg_4, "in1",
+                 label="HP Turbine stage 5")
+c11_1 = Connection(Splitter_stg_3, "out2", HP_feedwater_merger, "in1",
+                   label="HP feedwater heater stage 1")
 
-c12 = Connection(HP_turbine_stg_4, "out1", Splitter_stg_4, "in1", label="HP Turbine stage 6")
+c12 = Connection(HP_turbine_stg_4, "out1", Splitter_stg_4, "in1",
+                 label="HP Turbine stage 6")
 
 
 
 #Interstage Heaters
-c13 = Connection(Splitter_stg_4, "out1", moisture_seperator_heater, "in1", label="Moisture seperator heater")
-c14 = Connection(Splitter_stg_4, "out2", dearator, "in1", label="Dearator input 1")
+c13 = Connection(Splitter_stg_4, "out1", moisture_seperator_heater, "in1",
+                 label="Moisture seperator heater")
+c14 = Connection(Splitter_stg_4, "out2", dearator, "in1",
+                 label="Dearator input 1")
 
 #For moisture seperator out1 is liquid and out 2 is vapour
 c15 = Connection(moisture_seperator_heater,"out2", interstage_heater_1, "in2", label="Interstage heater 1")
@@ -336,6 +358,74 @@ c57 = Connection(HP_feedwater_heater_stg2, "out1", HP_feedwater_merger, "in2", l
 
 c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1", label="HP merger stage 2")
 # The output can come from step one
+
+#Component Attributes
+
+
+#Connection Attributes
+
+c1.set_attr(fluid=coolant,T=561.15,p=15.513e6,m=14300)
+c2.set_attr(T=554.985,p=15.513e6)
+
+c3.set_attr(fluid=working_fluid, T=543.87222,p=5.571e+6, m=1886.912)
+
+#Pre turbine split to interstage heater 2
+mass_flow_turbine = 1824.06438692
+c4.set_attr(m=61.32)
+c5.set_attr(m=1824.06)#Going into first turbine
+
+c7_1.set_attr(h=2718.4e3,m=82.94)#Interstage heater 1
+c8.set_attr(p=2826850)
+c9_1.set_attr(h=2685600,m=89.90)
+c10.set_attr(p=1785742)
+c11_1.set_attr(h=2610392,m=71.72)
+c12.set_attr(p=1132571,h=2539992,m=1452.34)
+
+
+c17.set_attr(h=1032307)
+
+c22.set_attr(p=426684,h=2773562)
+c24.set_attr(m=43.07)
+#c25.set_attr(p=256405,h=2686299)#
+c27.set_attr(m=74.76)
+c28.set_attr(p=86598,h=2532060)
+c30.set_attr(m=42.82)
+
+c31.set_attr(p=40525,h=2472618)
+c33.set_attr(m=60.98)
+
+c44.set_attr(T=321.68,h=202787)
+c45.set_attr(T=347.71,h=308640)
+
+c46.set_attr(T=365.26,h=389918)
+c47.set_attr(T=398.15,h=398.15)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# LP turbine and splits
+c34.set_attr(p=0.009e6,h=2275.743,m=1053.15)
+
+
+# Condenser
+c35.set_attr(fluid=cooling_fluid, T=(273.15 + 15), p=0.1e6)
+c36.set_attr(T=(273.15 + 27), p=0.1e6)
 
 AP1000_plant.add_conns(
     # Primary / Steam Generator
