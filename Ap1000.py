@@ -3,9 +3,12 @@ from envs.matlab_env.Lib.encodings import cp932, cp1140
 import components
 from tespy.networks import Network
 from tespy.components import (Compressor, Condenser, HeatExchanger, Turbine, Splitter,
-                              Merge, CycleCloser, Drum, Source, Sink, Pump, DropletSeparator)
+                              Merge, CycleCloser, Drum, Source, Sink, Pump, DropletSeparator,
+                              PowerBus,PowerSink, Motor
+                              )
 from tespy.components.power.generator import Generator
-from tespy.connections import Connection
+from tespy.connections import Connection, PowerConnection
+
 
 from components import Deareator
 
@@ -63,7 +66,36 @@ LP_splitter_stg_4 = Splitter('LP Spliter Stage 4', num_out=2)
 LP_turbine_stg_5 = Turbine('LP Turbine Stage 5')
 
 #Generator
+turbines = [LP_turbine_stg_1, LP_turbine_stg_2, LP_turbine_stg_3, LP_turbine_stg_4, LP_turbine_stg_5,
+            HP_turbine_stg_1, HP_turbine_stg_2, HP_turbine_stg_3, HP_turbine_stg_4]
+
+mechanical_bus = PowerBus("Mechanical Bus ", num_in=9,num_out=1)
 generator = Generator('Generator')
+
+turbine_power_conns = [
+    PowerConnection(turb, "power", mechanical_bus, f"power_in{i+1}", label=f"turb_power_{i+1}")
+    for i, turb in enumerate(turbines)
+]
+
+# Mechanical bus -> Generator
+e_gen_in = PowerConnection(mechanical_bus, "power_out1", generator, "power_in", label="mech_to_gen")
+
+# --- Electrical bus: generator feeds it, motors + grid draw from it ---
+electrical_bus = PowerBus("Electrical Bus", num_in=1, num_out=4)
+
+
+# Motors driving your three pumps
+cooling_pump_motor = Motor("Cooling Pump Motor")
+lp_fw_pump_motor = Motor("LP Feedwater Pump Motor")
+hp_fw_pump_motor = Motor("HP Feedwater Pump Motor")
+
+generator.set_attr(eta=0.985)
+cooling_pump_motor.set_attr(eta=0.95)
+lp_fw_pump_motor.set_attr(eta=0.95)
+hp_fw_pump_motor.set_attr(eta=0.95)
+
+grid = PowerSink("Grid")
+
 
 
 # Condenser
@@ -94,7 +126,7 @@ LP_feedwater_heater_stg4 = HeatExchanger('LP Feedwater Heater 4')# Last stage is
 # The extra line is just to a pump
 LP_heater_merge_stg1 = Merge('LP Heater Merge 1', num_in=2)
 LP_heater_merge_stg2 = Merge('LP Heater Merge 2', num_in=2)
-LP_heater_merge_stg3 = Merge('LP Heater Merge 3', num_in=2)
+LP_heater_merge_stg3 = Merge('LP Heater Merge 3', num_in=3)
 LP_heater_merge_stg4 = Merge('LP Heater Merge 4', num_in=2)
 
 dearator = Merge('Deaerator', num_in=3)
@@ -157,7 +189,7 @@ c6 = Connection(HP_turbine_stg_1,'out1', Splitter_stg_1, "in1",
 c7 = Connection(Splitter_stg_1, "out1", HP_turbine_stg_2, "in1", label="HP Turbine stage 1")
 c7_1 = Connection(Splitter_stg_1, "out2", interstage_heater_1, "in1", label="Interstage heater stage 1")
 
-c8 = Connection(HP_turbine_stg_2, "out2", Splitter_stg_2, "in1", label="HP Turbine stage 2")
+c8 = Connection(HP_turbine_stg_2, "out1", Splitter_stg_2, "in1", label="HP Turbine stage 2")
 
 c9 = Connection(Splitter_stg_2, "out1", HP_turbine_stg_3, "in1", label="HP Turbine stage 3")
 c9_1 = Connection(Splitter_stg_2, "out2", HP_feedwater_heater_stg2, "in1", label="HP feedwater heater stage 2")
@@ -199,13 +231,13 @@ c24 = Connection(LP_splitter_stg_1, "out2", LP_heater_merge_stg4, "in2", label="
 c25 = Connection(LP_turbine_stg_2, "out1", LP_splitter_stg_2, "in1", label="LP turbine stage 2 Ex")
 
 c26 = Connection(LP_splitter_stg_2, "out1", LP_turbine_stg_3, "in1", label="LP turbine stage 3 En")
-c27 = Connection(LP_splitter_stg_2, "out2", LP_heater_merge_stg3, "in2", label="LP turbine stage 3 En")
+c27 = Connection(LP_splitter_stg_2, "out2", LP_heater_merge_stg3, "in2", label="LP heater stage 3 En")
 
 
-c28 = Connection(LP_turbine_stg_3, "out1", LP_splitter_stg_4, "in1", label="LP turbine stage 4 Ex")
+c28 = Connection(LP_turbine_stg_3, "out1", LP_splitter_stg_3, "in1", label="LP turbine stage 3 Ex")
 
 c29 = Connection(LP_splitter_stg_3, "out1", LP_turbine_stg_4, "in1", label="LP turbine stage 4 En")
-c30 = Connection(LP_splitter_stg_3, "out2", LP_heater_merge_stg2, "in2", label="LP heater stage 4 En")
+c30 = Connection(LP_splitter_stg_3, "out2", LP_heater_merge_stg2, "in2", label="LP heater stage 4 Ex")
 
 
 c31 = Connection(LP_turbine_stg_4, "out1", LP_splitter_stg_4, "in1", label="LP turbine stage 4 Ex")
@@ -217,12 +249,28 @@ c33 = Connection(LP_splitter_stg_4, "out2", LP_heater_merge_stg1, "in2", label="
 
 
 #6 Power bus connections
+e_cp_in  = PowerConnection(electrical_bus, "power_out1", cooling_pump_motor, "power_in", label="elec_to_cp_motor")
+e_cp_out = PowerConnection(cooling_pump_motor, "power_out", cooling_pump, "power", label="cp_motor_to_pump")
+
+e_lpfw_in  = PowerConnection(electrical_bus, "power_out2", lp_fw_pump_motor, "power_in", label="elec_to_lpfw_motor")
+e_lpfw_out = PowerConnection(lp_fw_pump_motor, "power_out", LP_feedwater_pump, "power", label="lpfw_motor_to_pump")
+
+e_hpfw_in  = PowerConnection(electrical_bus, "power_out3", hp_fw_pump_motor, "power_in", label="elec_to_hpfw_motor")
+e_hpfw_out = PowerConnection(hp_fw_pump_motor, "power_out", HP_feedwater_pump, "power", label="hpfw_motor_to_pump")
+
+e_gen_out = PowerConnection(generator, "power_out", electrical_bus, "power_in1", label="gen_to_elec")
+e_grid = PowerConnection(electrical_bus, "power_out4", grid, "power", label="elec_to_grid")
+
+# Efficiencies
+
 
 #7 Condenser comes next (This is where one of the configuration will interface)
 c34 = Connection(LP_turbine_stg_5, "out1", condenser, "in1", label="Condenser")#in1/out1 is hot side
 
-c35 = Connection(cooling_water_in, "out1", condenser, "in2", label="Cooling water in")
-c36 = Connection(cooling_water_out, "in2", condenser, "out2", label="Cooling water out")
+c35 = Connection(cooling_water_in, "out1", cooling_pump, "in1", label="Cooling water in")
+c35_1 = Connection(cooling_pump, "out1", condenser,"in2", label="Condenser pump")
+
+c36 = Connection(condenser, "out2", cooling_water_out, "in1", label="Cooling water out")
 
 c37 = Connection(condenser, "out1", condenser_merger, "in1", label="Condenser merger")
 
@@ -254,36 +302,83 @@ c44 = Connection(LP_feedwater_pump, "out1", LP_feedwater_heater_stg1, "in2")
 c45 = Connection(LP_feedwater_heater_stg1, "out2", LP_feedwater_heater_stg2, "in2",
                  label="LP feedwater heater 2 Cold in")
 
-c46 = Connection(LP_feedwater_heater_stg2,"out2", LP_feedwater_heater_stg3, "in2",
+c46 = Connection(LP_feedwater_heater_stg2, "out2", LP_feedwater_heater_stg3, "in2",
                  label="LP feedwater heater 3 Cold in")
 
-c47 = Connection(LP_feedwater_heater_stg3,"out2", LP_feedwater_heater_stg4, "in2",
+c47 = Connection(LP_feedwater_heater_stg3, "out2", LP_feedwater_heater_stg4, "in2",
                  label="LP feedwater heater 4 Cold in")
 
-c48 = Connection(LP_feedwater_heater_stg4, "out1", LP_heater_merge_stg3, "in1",
-                 label="LP FWH4 drain cascade to FWH3")
+
 c49 = Connection(LP_feedwater_heater_stg3, "out1", LP_heater_merge_stg2, "in1",
                  label="LP FWH3 drain cascade to FWH2")
 c50 = Connection(LP_feedwater_heater_stg2, "out1", LP_heater_merge_stg1, "in1",
                  label="LP FWH2 drain cascade to FWH1")
 
 #9 Deaerator
-c51 = Connection(LP_feedwater_heater_stg4, "out1", dearator, "in2", label="Dearator input 2")
-c52 = Connection(HP_feedwater_heater_stg1, "out1", dearator, "in3", label="Dearator input 3")
+c51 = Connection(LP_feedwater_heater_stg4, "out2", dearator, "in2", label="Dearator input 2")
+c52 = Connection(LP_feedwater_heater_stg4, "out1", LP_heater_merge_stg3, "in3",
+                    label="LP FWH4 drain cascade to FWH3")
+c53 = Connection(HP_feedwater_heater_stg1, "out1", dearator, "in3", label="Dearator input 3")
 
 
 
 
 #10 Heater
 ## in1/out1 = hot side, in2/out2 = cold side
-c53 = Connection(dearator, "out1", HP_feedwater_pump,"in1", label="Dearator output 1")
+c54 = Connection(dearator, "out1", HP_feedwater_pump,"in1", label="Dearator output 1")
 
-c54 = Connection(HP_feedwater_pump,"out1",  HP_feedwater_heater_stg1, "in2", label="HP heater input")
+c55 = Connection(HP_feedwater_pump,"out1",  HP_feedwater_heater_stg1, "in2", label="HP heater input")
 
-c55 = Connection(HP_feedwater_heater_stg1, "out2", HP_feedwater_heater_stg2, "in2",
+c56 = Connection(HP_feedwater_heater_stg1, "out2", HP_feedwater_heater_stg2, "in2",
                  label="HP feedwater stage 1 into stage 2")
 
-c56 = Connection(HP_feedwater_heater_stg2, "out1", HP_feedwater_merger, "in2", label="HP merger stage 1")
+c57 = Connection(HP_feedwater_heater_stg2, "out1", HP_feedwater_merger, "in2", label="HP merger stage 1")
 
-c57 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1", label="HP merger stage 2")
+c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1", label="HP merger stage 2")
 # The output can come from step one
+
+AP1000_plant.add_conns(
+    # Primary / Steam Generator
+    c1, c2,
+
+    # Feedwater into Steam Generator
+    c_fw1, c_fw2,
+
+    # Steam Generator -> Turbine
+    c3, c4, c5,
+
+    # HP Turbine
+    c6, c7, c7_1, c8, c9, c9_1,
+    c10, c11, c11_1, c12,
+
+    # Interstage
+    c13, c14, c15, c16, c17, c18, c19, c20, c21,
+
+    # LP Turbine
+    c22, c23, c24, c25, c26, c27,
+    c28, c29, c30, c31, c32, c33,
+
+    # Condenser
+    c34, c35, c35_1, c36, c37, c38,
+
+    # LP Heaters
+    c39, c40, c41, c42, c43,
+    c44, c45, c46, c47, c49, c50,
+
+    # Deaerator
+    c51, c52, c53,
+
+    # HP Heaters
+    c54, c55, c56, c57,c58
+)
+
+AP1000_plant.add_conns(
+    *turbine_power_conns,
+    e_gen_in, e_gen_out,
+    e_cp_in, e_cp_out,
+    e_lpfw_in, e_lpfw_out,
+    e_hpfw_in, e_hpfw_out,
+    e_grid,
+)
+
+AP1000_plant.solve(mode="design")
