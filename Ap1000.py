@@ -1,5 +1,3 @@
-from envs.matlab_env.Lib.encodings import cp932, cp1140
-
 import components
 from tespy.networks import Network
 from tespy.components import (Compressor, Condenser, HeatExchanger, Turbine, Splitter,
@@ -8,6 +6,8 @@ from tespy.components import (Compressor, Condenser, HeatExchanger, Turbine, Spl
                               )
 from tespy.components.power.generator import Generator
 from tespy.connections import Connection, PowerConnection
+
+#Use TTD
 
 coolant = {"water":1}
 working_fluid = {"water":1}
@@ -360,14 +360,40 @@ c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1", l
 # The output can come from step one
 
 #Component Attributes
+#Steam Generator
+steam_generator.set_attr(Q=1707.5e6, UA=32.963e6)
 
+#HP Turbines
+HP_turbine_stg_1.set_attr(eta_s=0.848)
+HP_turbine_stg_2.set_attr(eta_s=0.848)
+HP_turbine_stg_3.set_attr(eta_s=0.848)
+HP_turbine_stg_4.set_attr(eta_s=0.848)
+
+#LP Turbines
+LP_turbine_stg_1.set_attr(eta_s=0.882)
+LP_turbine_stg_2.set_attr(eta_s=0.906)
+LP_turbine_stg_3.set_attr(eta_s=0.894)
+LP_turbine_stg_4.set_attr(eta_s=0.894)
+LP_turbine_stg_5.set_attr(eta_s=0.894)
+
+
+#HP feedwater
+
+
+
+
+#LP feedwater
+LP_feedwater_heater_stg1.set_attr()
+LP_feedwater_heater_stg2.set_attr()
+LP_feedwater_heater_stg3.set_attr()
+LP_feedwater_heater_stg4.set_attr()
 
 #Connection Attributes
 
 c1.set_attr(fluid=coolant,T=561.15,p=15.513e6,m=14300)
 c2.set_attr(T=554.985,p=15.513e6)
 
-c3.set_attr(fluid=working_fluid, T=543.87222,p=5.571e+6, m=1886.912)
+c3.set_attr(fluid=working_fluid, x=0.9975,p=5.571e+6, m=1886.912)
 
 #Pre turbine split to interstage heater 2
 mass_flow_turbine = 1824.06438692
@@ -395,27 +421,6 @@ c31.set_attr(p=40525,h=2472618)
 c33.set_attr(m=60.98)
 
 c44.set_attr(T=321.68,h=202787)
-c45.set_attr(T=347.71,h=308640)
-
-c46.set_attr(T=365.26,h=389918)
-c47.set_attr(T=398.15,h=398.15)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
