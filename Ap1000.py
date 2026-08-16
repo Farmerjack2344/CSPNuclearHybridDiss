@@ -361,7 +361,11 @@ c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1", l
 
 #Component Attributes
 #Steam Generator
-steam_generator.set_attr(Q=1707.5e6, UA=32.963e6)
+steam_generator.set_attr(Q=1707.5e6)#, UA=32.963e6)
+
+#Interstage Heater
+interstage_heater_1.set_attr(ttd_u=(28.8 * 0.555555556))
+interstage_heater_2.set_attr(ttd_u=(25.2 * 0.555555556))
 
 #HP Turbines
 HP_turbine_stg_1.set_attr(eta_s=0.848)
@@ -377,16 +381,20 @@ LP_turbine_stg_4.set_attr(eta_s=0.894)
 LP_turbine_stg_5.set_attr(eta_s=0.894)
 
 
+
 #HP feedwater
+HP_feedwater_heater_stg1.set_attr(ttd_u=2.22, ttd_l=5.56)
+HP_feedwater_heater_stg2.set_attr(ttd_u=2.22, ttd_l=5.56)
 
-
-
+HP_feedwater_pump.set_attr(eta_s=0.85)
 
 #LP feedwater
-LP_feedwater_heater_stg1.set_attr()
-LP_feedwater_heater_stg2.set_attr()
-LP_feedwater_heater_stg3.set_attr()
-LP_feedwater_heater_stg4.set_attr()
+LP_feedwater_heater_stg1.set_attr(ttd_u=2.22, ttd_l=5.56)
+LP_feedwater_heater_stg2.set_attr(ttd_u=2.22, ttd_l=5.56)
+LP_feedwater_heater_stg3.set_attr(ttd_u=2.22, ttd_l=5.56)
+LP_feedwater_heater_stg4.set_attr(ttd_u=2.22, ttd_l=5.56)
+
+LP_feedwater_pump.set_attr(eta_s=0.85)
 
 #Connection Attributes
 
@@ -400,12 +408,13 @@ mass_flow_turbine = 1824.06438692
 c4.set_attr(m=61.32)
 c5.set_attr(m=1824.06)#Going into first turbine
 
-c7_1.set_attr(h=2718.4e3,m=82.94)#Interstage heater 1
+
+
 c8.set_attr(p=2826850)
 c9_1.set_attr(h=2685600,m=89.90)
 c10.set_attr(p=1785742)
-c11_1.set_attr(h=2610392,m=71.72)
-c12.set_attr(p=1132571,h=2539992,m=1452.34)
+c11_1.set_attr(m=71.72)
+c12.set_attr(p=1132571,m=1452.34)
 
 
 c17.set_attr(h=1032307)
@@ -414,13 +423,13 @@ c22.set_attr(p=426684,h=2773562)
 c24.set_attr(m=43.07)
 #c25.set_attr(p=256405,h=2686299)#
 c27.set_attr(m=74.76)
-c28.set_attr(p=86598,h=2532060)
+c28.set_attr(p=86598)
 c30.set_attr(m=42.82)
 
-c31.set_attr(p=40525,h=2472618)
+#c31.set_attr(p=40525,h=2472618)
 c33.set_attr(m=60.98)
 
-c44.set_attr(T=321.68,h=202787)
+c44.set_attr(T=321.68)#,h=202787)#
 
 
 
@@ -476,4 +485,15 @@ AP1000_plant.add_conns(
     e_grid,
 )
 
-AP1000_plant.solve(mode="design")
+try:
+    AP1000_plant.solve(mode="design")
+    AP1000_plant.print_variables()
+    AP1000_plant.print_equations()
+    AP1000_plant.print_incidence_matrix()
+
+except Exception as e:
+    print(e)
+    AP1000_plant.print_variables()
+    AP1000_plant.print_equations()
+    AP1000_plant.print_incidence_matrix()
+
