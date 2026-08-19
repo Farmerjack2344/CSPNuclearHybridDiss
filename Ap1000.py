@@ -364,8 +364,8 @@ c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1", l
 steam_generator.set_attr(Q=1707.5e6)#, UA=32.963e6)
 
 #Interstage Heater
-interstage_heater_1.set_attr(ttd_u=(28.8 * 0.555555556))
-interstage_heater_2.set_attr(ttd_u=(25.2 * 0.555555556))
+interstage_heater_1.set_attr(ttd_u=(28.8 * 0.555555556),pr1=0.97)
+interstage_heater_2.set_attr(ttd_u=(25.2 * 0.555555556),pr1=0.97)
 
 #HP Turbines
 HP_turbine_stg_1.set_attr(eta_s=0.848)
@@ -380,7 +380,9 @@ LP_turbine_stg_3.set_attr(eta_s=0.894)
 LP_turbine_stg_4.set_attr(eta_s=0.894)
 LP_turbine_stg_5.set_attr(eta_s=0.894)
 
-
+#Condenser
+condenser.set_attr(pr2=0.97)
+cooling_pump.set_attr(eta_s=0.85)
 
 #HP feedwater
 HP_feedwater_heater_stg1.set_attr(ttd_u=2.22, ttd_l=5.56)
@@ -399,9 +401,9 @@ LP_feedwater_pump.set_attr(eta_s=0.85)
 #Connection Attributes
 
 c1.set_attr(fluid=coolant,T=561.15,p=15.513e6,m=14300)
-c2.set_attr(T=554.985,p=15.513e6)
+c2.set_attr(p=15.513e6)# Removed T=554.985,
 
-c3.set_attr(fluid=working_fluid, x=0.9975,p=5.571e+6, m=1886.912)
+c3.set_attr(fluid=working_fluid, x=0.9975,p=5.571e+6)#Removed the Mass flow rate
 
 #Pre turbine split to interstage heater 2
 mass_flow_turbine = 1824.06438692
@@ -417,7 +419,7 @@ c11_1.set_attr(m=71.72)
 c12.set_attr(p=1132571,m=1452.34)
 
 
-c17.set_attr(h=1032307)
+#c17.set_attr(h=1032307)
 
 c22.set_attr(p=426684,h=2773562)
 c24.set_attr(m=43.07)
@@ -427,7 +429,7 @@ c28.set_attr(p=86598)
 c30.set_attr(m=42.82)
 
 #c31.set_attr(p=40525,h=2472618)
-c33.set_attr(m=60.98)
+#c33.set_attr(m=60.98)
 
 c44.set_attr(T=321.68)#,h=202787)#
 
@@ -487,9 +489,7 @@ AP1000_plant.add_conns(
 
 try:
     AP1000_plant.solve(mode="design")
-    AP1000_plant.print_variables()
-    AP1000_plant.print_equations()
-    AP1000_plant.print_incidence_matrix()
+
 
 except Exception as e:
     print(e)
