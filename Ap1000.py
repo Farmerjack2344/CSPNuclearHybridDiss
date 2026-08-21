@@ -426,7 +426,7 @@ HP_feedwater_pump.set_attr(eta_s=0.85)
 
 #LP feedwater
 LP_feedwater_heater_stg1.set_attr(ttd_u=2.22, pr2=0.97)
-LP_feedwater_heater_stg2.set_attr(Q=49.4e6,pr2=0.98)#ttd_u=2.22,ttd_l=5.56)
+LP_feedwater_heater_stg2.set_attr(Q=49.4e6,pr2=0.98)
 LP_feedwater_heater_stg3.set_attr(Q=81.4e6, pr2=0.98)
 LP_feedwater_heater_stg4.set_attr(ttd_u=2.22, pr2=0.97)
 

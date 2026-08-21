@@ -85,16 +85,14 @@ turbine_power_conns = [
 e_gen_in = PowerConnection(mechanical_bus, "power_out1", generator, "power_in", label="mech_to_gen")
 
 # --- Electrical bus: generator feeds it, motors + grid draw from it ---
-electrical_bus = PowerBus("Electrical Bus", num_in=1, num_out=4)
+electrical_bus = PowerBus("Electrical Bus", num_in=1, num_out=3)
 
 
 # Motors driving your three pumps
-cooling_pump_motor = Motor("Cooling Pump Motor")
 lp_fw_pump_motor = Motor("LP Feedwater Pump Motor")
 hp_fw_pump_motor = Motor("HP Feedwater Pump Motor")
 
 generator.set_attr(eta=0.985)
-cooling_pump_motor.set_attr(eta=0.95)
 lp_fw_pump_motor.set_attr(eta=0.95)
 hp_fw_pump_motor.set_attr(eta=0.95)
 
@@ -286,15 +284,42 @@ c33 = Connection(LP_splitter_stg_4, "out2", LP_heater_merge_stg1, "in2", label="
 
 
 #6 Power bus connections
-e_cp_in  = PowerConnection(electrical_bus, "power_out1", cooling_pump_motor, "power_in", label="elec_to_cp_motor")
-e_lpfw_in  = PowerConnection(electrical_bus, "power_out2", lp_fw_pump_motor, "power_in", label="elec_to_lpfw_motor")
-e_lpfw_out = PowerConnection(lp_fw_pump_motor, "power_out", LP_feedwater_pump, "power", label="lpfw_motor_to_pump")
 
-e_hpfw_in  = PowerConnection(electrical_bus, "power_out3", hp_fw_pump_motor, "power_in", label="elec_to_hpfw_motor")
-e_hpfw_out = PowerConnection(hp_fw_pump_motor, "power_out", HP_feedwater_pump, "power", label="hpfw_motor_to_pump")
+e_lpfw_in = PowerConnection(
+    electrical_bus, "power_out1",
+    lp_fw_pump_motor, "power_in",
+    label="elec_to_lpfw_motor"
+)
 
-e_gen_out = PowerConnection(generator, "power_out", electrical_bus, "power_in1", label="gen_to_elec")
-e_grid = PowerConnection(electrical_bus, "power_out4", grid, "power", label="elec_to_grid")
+e_lpfw_out = PowerConnection(
+    lp_fw_pump_motor, "power_out",
+    LP_feedwater_pump, "power",
+    label="lpfw_motor_to_pump"
+)
+
+e_hpfw_in = PowerConnection(
+    electrical_bus, "power_out2",
+    hp_fw_pump_motor, "power_in",
+    label="elec_to_hpfw_motor"
+)
+
+e_hpfw_out = PowerConnection(
+    hp_fw_pump_motor, "power_out",
+    HP_feedwater_pump, "power",
+    label="hpfw_motor_to_pump"
+)
+
+e_gen_out = PowerConnection(
+    generator, "power_out",
+    electrical_bus, "power_in1",
+    label="gen_to_elec"
+)
+
+e_grid = PowerConnection(
+    electrical_bus, "power_out3",
+    grid, "power",
+    label="elec_to_grid"
+)
 
 # Efficiencies
 
@@ -376,13 +401,33 @@ c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1",
 # Component Attributes
 steam_generator.set_attr(Q=1708e6,pr1=1,pr2=0.97)
 
-interstage_heater_1.set_attr()
+interstage_heater_1.set_attr(Q=133.03e6)
 interstage_heater_2.set_attr(ttd_u=14,pr2=0.97)
 
 #HP turbine outlets define in connections
+HP_turbine_stg_1.set_attr(eta_s=0.845)
+HP_turbine_stg_2.set_attr(eta_s=0.845)
+HP_turbine_stg_3.set_attr(eta_s=0.845)
 HP_turbine_stg_4.set_attr(eta_s=0.845)
 
 #Condenser
+
+condenser.set_attr(pr2=1,pr1=0.97)
+
+#LP Turbines
+LP_turbine_stg_1.set_attr(eta_s=0.882,pr=0.39)
+LP_turbine_stg_2.set_attr(eta_s=0.906,pr=0.6)
+LP_turbine_stg_3.set_attr(eta_s=0.894,pr=0.34)
+LP_turbine_stg_4.set_attr(eta_s=0.894,pr=0.46)
+LP_turbine_stg_5.set_attr(eta_s=0.894)
+
+
+
+# LP feedwater heaters
+LP_feedwater_heater_stg1.set_attr(ttd_u=2.22, pr2=0.97)
+LP_feedwater_heater_stg2.set_attr(Q=49.4e6,pr2=0.98)
+LP_feedwater_heater_stg3.set_attr(Q=81.4e6, pr2=0.98)
+LP_feedwater_heater_stg4.set_attr(ttd_u=2.22, pr2=0.97)
 
 # Connection Attributes
 #Steam generator
@@ -403,7 +448,7 @@ c4.set_attr(m=61.32)
 c6.set_attr(p=3.41e6)
 c8.set_attr(p=2.83e6)
 c10.set_attr(p=1.79e6)
-c12.set_attr(p=1.13e6)
+# Not use c12 pressure
 
 #MSH and Interstage
 c13.set_attr(m=1452)
@@ -413,10 +458,18 @@ c11_1.set_attr(m=71.72)
 
 #Mass flow out of splitters
 
+#LP Turbines
+
+#c24.set_attr(p=427000,m=43.07)
+#c27.set_attr(p=256000,m=74.8)
+#c30.set_attr(p=89600,x=0.105,m=42.82)
+
+#DO feed water heaters now
 
 #Condenser
+c34.set_attr(p=40500)
 c35.set_attr(fluid=cooling_fluid,p=0.1e6,T=288.15, m=44854.196)
-c36.set_attr(p=0.1,T=300.15)
+c36.set_attr(T=300.15)
 
 AP1000_plant.add_conns(
     # Primary / Steam Generator
@@ -455,12 +508,15 @@ AP1000_plant.add_conns(
 
 AP1000_plant.add_conns(
     *turbine_power_conns,
-    e_gen_in, e_gen_out,
-    e_cp_in,
-    e_lpfw_in, e_lpfw_out,
-    e_hpfw_in, e_hpfw_out,
+    e_gen_in,
+    e_gen_out,
+    e_lpfw_in,
+    e_lpfw_out,
+    e_hpfw_in,
+    e_hpfw_out,
     e_grid,
 )
+
 
 
 
