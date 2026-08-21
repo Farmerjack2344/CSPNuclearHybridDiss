@@ -1,2 +1,8 @@
 .venv/
 .idea/
+__pycache__/
+/NRC_PDFs
+Tests.ipynb
+Test.py
+output
+status.txt
