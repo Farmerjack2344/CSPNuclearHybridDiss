@@ -464,7 +464,7 @@ HP_turbine_stg_4.set_attr(eta_s=0.845)
 
 #Condenser
 
-condenser.set_attr(pr2=1,pr1=0.97)
+condenser.set_attr(pr2=1,pr1=0.97,subcooling=False)
 
 #LP Turbines
 LP_turbine_stg_1.set_attr(eta_s=0.882,pr=0.39)
@@ -542,6 +542,7 @@ c31.set_attr(p0=1.133e6)
 c34.set_attr(p=40500)
 c35.set_attr(fluid=cooling_fluid,p=0.1e6,T=288.15, m=44854.196)
 c36.set_attr(T=300.15)
+c37.set_attr(x=0)
 c40.set_attr(m=83.6278)
 
 #LP feedwater heater
