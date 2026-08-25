@@ -137,6 +137,9 @@ HP_feedwater_merger = Merge('HP Feedwater Merger', num_in=2)
 HP_feedwater_heater_stg1 = HeatExchanger('HP Feedwater Heater 1')
 HP_feedwater_heater_stg2 = HeatExchanger('HP Feedwater Heater 2')
 
+#Valves
+
+
 
 
 # Setup
@@ -402,7 +405,7 @@ c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1",
 steam_generator.set_attr(Q=1708e6,pr1=1,pr2=0.97)
 
 interstage_heater_1.set_attr(Q=133.03e6)
-interstage_heater_2.set_attr(ttd_u=14,pr2=0.97)
+interstage_heater_2.set_attr(Q=93.65e6, pr2=0.97)
 
 #HP turbine outlets define in connections
 HP_turbine_stg_1.set_attr(eta_s=0.845)
@@ -424,52 +427,66 @@ LP_turbine_stg_5.set_attr(eta_s=0.894)
 
 
 # LP feedwater heaters
-LP_feedwater_heater_stg1.set_attr(ttd_u=2.22, pr2=0.97)
+LP_feedwater_pump.set_attr(eta_s=0.80)
+LP_feedwater_heater_stg1.set_attr(Q=136.06e6, pr2=0.97)#Set Q, took out ttd_u
 LP_feedwater_heater_stg2.set_attr(Q=49.4e6,pr2=0.98)
 LP_feedwater_heater_stg3.set_attr(Q=81.4e6, pr2=0.98)
-LP_feedwater_heater_stg4.set_attr(ttd_u=2.22, pr2=0.97)
+LP_feedwater_heater_stg4.set_attr(Q=96.59e6, pr2=0.97)# Set Q Took out ttd_u
 
+#HP feedwater heaters
+HP_feedwater_pump.set_attr(eta_s=0.8078 ,pr=6.90)
+
+HP_feedwater_heater_stg1.set_attr(Q=147.91e6, pr2=0.97)
+HP_feedwater_heater_stg2.set_attr(Q=15.44e6)
+
+# ==========================================
 # Connection Attributes
-#Steam generator
-#Hot side
-#c1,c2
-c1.set_attr(fluid=coolant,T=597.85,p=15.5e6)#Primary in
+# ==========================================
+
+# Steam generator
+c1.set_attr(fluid=coolant, T=597.85, p=15.5e6) # Primary in
 c2.set_attr(T=555)
 
-#Cold Side
-#c3 cold out
-c3.set_attr(fluid=working_fluid,m=1886.91,T=543.9,p=5.57e6)
+# Cold Side
+c3.set_attr(fluid=working_fluid, m=1886.91, T=543.9, p=5.57e6)
 
-#Pre turbine split
-c4.set_attr(m=61.32)
-
-#HP turbines
-#outlets to splitters
+# HP turbines outlets to splitters
 c6.set_attr(p=3.41e6)
 c8.set_attr(p=2.83e6)
 c10.set_attr(p=1.79e6)
-# Not use c12 pressure
+c12.set_attr(p=113e4)
 
-#MSH and Interstage
-c13.set_attr(m=1452)
-c14.set_attr(m=170.3)
+# MSH and Interstage
+c18.set_attr(x=0.05)  # MUST be 'x' (hard constraint), not 'x0'
+c20.set_attr(x=0)     # Drain from interstage heater 2 must be liquid
 
-c11_1.set_attr(m=71.72)
+# LP Turbines
+# We must lock one of the parallel bleeds to LP FWH 4 to avoid a singularity
+c24.set_attr(p0=427000, m=43.07)  # Changed from m0 to m to lock the split
+c27.set_attr(p0=256000, m0=74.8)
+c30.set_attr(p0=89600, x0=0.105, m0=42.82)
+c31.set_attr(p0=1.133e6)
 
-#Mass flow out of splitters
-
-#LP Turbines
-
-#c24.set_attr(p=427000,m=43.07)
-#c27.set_attr(p=256000,m=74.8)
-#c30.set_attr(p=89600,x=0.105,m=42.82)
-
-#DO feed water heaters now
-
-#Condenser
+# Condenser
 c34.set_attr(p=40500)
-c35.set_attr(fluid=cooling_fluid,p=0.1e6,T=288.15, m=44854.196)
+c35.set_attr(fluid=cooling_fluid, p=0.1e6, T=288.15)
 c36.set_attr(T=300.15)
+
+# LP feedwater heater DRAINS (Hot side outlets must be saturated liquid)
+
+c50.set_attr(x=0)
+c49.set_attr(x=0)
+c52.set_attr(x=0)
+
+# HP Feedwater heater DRAINS (Hot side outlets must be saturated liquid)
+c53.set_attr(x=0)
+c57.set_attr(x=0)
+
+# Deaerator Outlet
+c54.set_attr(x=0)
+
+# NO constraints on c55, c13, c14, c11_1, c45, or c51. Let TESPy calculate them!
+
 
 AP1000_plant.add_conns(
     # Primary / Steam Generator
@@ -524,7 +541,13 @@ try:
 
     result = AP1000_plant.solve(mode="design",block_solve=False)
     print(f"Conerged: {"True" if AP1000_plant.status == 0 else "False"}")
+    print("\n" * 5)
+    AP1000_plant.print_structural_analysis()
+    print("\n" * 5)
+    AP1000_plant.print_variables()
+    print("\n" * 5)
     AP1000_plant.print_incidence_matrix()
+    print("\n" * 5)
     AP1000_plant.print_equations_with_dependents()
 
 
@@ -532,6 +555,7 @@ try:
 
 except Exception as e:
     print(f"Error: {e}")
+    print(c14.p.val)
     AP1000_plant.print_variables()
     AP1000_plant.print_structural_analysis()
     AP1000_plant.print_incidence_matrix()
