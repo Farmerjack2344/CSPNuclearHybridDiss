@@ -25,20 +25,22 @@ reactor_in = Sink('Reactor In')
 steam_generator = HeatExchanger('Steam Generator')#
 ms_drain_valve = Valve("MS Drain Valve")
 
-pre_turbine_split = Splitter('Pre-Turbine Split', num_out=2)
+pre_turbine_split = Splitter('Pre-Turbine Split', num_out=(1 + 4))
+# One stream to the interstage heater and the rest to seperate turbines
 
 # HP Turbine block
-HP_turbine_stg_1 = SteamTurbine('HP Turbine Stage 1')
-Splitter_stg_1 = Splitter('Spliter Stage 1', num_out=2)
+HP_turbine_stg_1 = SteamTurbine('HP Turbine Stage 1 (495P)')
 
-HP_turbine_stg_2 = SteamTurbine('HP Turbine Stage 2')
-Splitter_stg_2 = Splitter('Spliter Stage 2', num_out=2)
 
-HP_turbine_stg_3 = SteamTurbine('HP Turbine Stage 3')
-Splitter_stg_3 = Splitter('Spliter Stage 3', num_out=2)
+HP_turbine_stg_2 = SteamTurbine('HP Turbine Stage 2(410)')
 
-HP_turbine_stg_4 = SteamTurbine('HP Turbine Stage 4')
-Splitter_stg_4 = Splitter('Spliter Stage 4', num_out=3)
+
+HP_turbine_stg_3 = SteamTurbine('HP Turbine Stage 3(259)')
+
+
+HP_turbine_stg_4 = SteamTurbine('HP Turbine Stage 4(164.3x5)')
+HP_turbine_splitter = Splitter('HP Turbine Splitter', num_out=3)
+
 
 # HP_turbine_stg_5 = Turbine('HP Turbine Stage 5')
 # Spliter_stg_5 = Splitter('Spliter Stage 5', num_out=2)
@@ -133,7 +135,10 @@ dearator = Merge('Deaerator', num_in=3)
 
 # HP Heaters
 HP_feedwater_pump = Pump('HP Feedwater Pump')
-HP_feedwater_merger = Merge('HP Feedwater Merger', num_in=2)
+HP_turbine_merger = Merge('HP Feedwater Merger: interstage outlet into st2 heater',
+                          num_in=3)
+HP_heater_merger = Merge("Merge output from HP FWH stg2 to stg1",
+                         num_in=2)
 HP_feedwater_heater_stg1 = HeatExchanger('HP Feedwater Heater 1')
 HP_feedwater_heater_stg2 = HeatExchanger('HP Feedwater Heater 2')
 
@@ -188,44 +193,39 @@ c4 = Connection(pre_turbine_split,"out1", interstage_heater_2, "in1",
 
 #3.2 On stream going to the turbine
 c5  = Connection(pre_turbine_split, "out2", HP_turbine_stg_1, "in1",
-                 label="Stream into the first turbine stage")
+                 label="Stream into turbine (495P))")
+c6  = Connection(pre_turbine_split, "out3", HP_turbine_stg_2, "in1",
+                 label="Stream into turbine (410P)")
+
+c7  = Connection(pre_turbine_split, "out4", HP_turbine_stg_3, "in1",
+                 label="Stream into turbine (259P)")
+
+c8  = Connection(pre_turbine_split, "out5", HP_turbine_stg_4, "in1",
+                 label="Stream into turbine (164.3P)")
+
+
 
 #4 Streams going to the next stage of turbines
-c6 = Connection(HP_turbine_stg_1,'out1', Splitter_stg_1, "in1",
+c9 = Connection(HP_turbine_stg_1,'out1', interstage_heater_1, "in1",
                 label="HP Turbine stage 0")
 
-c7 = Connection(Splitter_stg_1, "out1", HP_turbine_stg_2, "in1",
-                label="HP Turbine stage 1")
-c7_1 = Connection(Splitter_stg_1, "out2", interstage_heater_1, "in1",
-                  label="Interstage heater stage 1")
-
-c8 = Connection(HP_turbine_stg_2, "out1", Splitter_stg_2, "in1",
+c10 = Connection(HP_turbine_stg_2, "out1", HP_turbine_merger, "in1",
                 label="HP Turbine stage 2")
 
-c9 = Connection(Splitter_stg_2, "out1", HP_turbine_stg_3, "in1",
-                label="HP Turbine stage 3")
-c9_1 = Connection(Splitter_stg_2, "out2", interstage_merge, "in3",
-                  label="HP feedwater heater stage 2")
-
-c10 = Connection(HP_turbine_stg_3, "out1", Splitter_stg_3, "in1",
+c11 = Connection(HP_turbine_stg_3, "out1", HP_heater_merger, "in1",
                  label="HP Turbine stage 4")
 
-c11 = Connection(Splitter_stg_3, "out1", HP_turbine_stg_4, "in1",
-                 label="HP Turbine stage 5")
-c11_1 = Connection(Splitter_stg_3, "out2", HP_feedwater_merger, "in1",
-                   label="HP feedwater heater stage 1")
-
-c12 = Connection(HP_turbine_stg_4, "out1", Splitter_stg_4, "in1",
+c12 = Connection(HP_turbine_stg_4, "out1", HP_turbine_splitter, "in1",
                  label="HP Turbine stage 6")
 
 
 
 #Interstage Heaters
-c13 = Connection(Splitter_stg_4, "out1", moisture_seperator_heater, "in1",
+c13 = Connection(HP_turbine_splitter, "out1", moisture_seperator_heater, "in1",
                  label="Moisture seperator heater")
-c14 = Connection(Splitter_stg_4, "out2", dearator, "in1",
+c14 = Connection(HP_turbine_splitter, "out2", dearator, "in1",
                  label="Dearator input 1")
-c14_1 = Connection(Splitter_stg_4, "out3", LP_heater_merge_stg4, "in1",
+c14_1 = Connection(HP_turbine_splitter, "out3", LP_heater_merge_stg4, "in1",
                     label="HP crossover to LP FWH4")
 
 #For moisture seperator out1 is liquid and out 2 is vapour
@@ -237,22 +237,22 @@ c16_out = Connection(ms_drain_valve, "out1", LP_heater_merge_stg3, "in1", label=
 
 c17 = Connection(interstage_heater_1, "out2", interstage_heater_2, "in2",
                  label="Interstage heater stage 2")
-c18 = Connection(interstage_heater_1, "out1", interstage_merge, "in1",
+c18 = Connection(interstage_heater_1, "out1", HP_turbine_merger, "in2",
                  label="Interstage merge 1")
 
 c19 = Connection(interstage_heater_2, "out2", LP_turbine_stg_1, "in1",
                  label="LP turbine stage 1")
 
-c20 = Connection(interstage_heater_2, "out1", interstage_merge, "in2",
+c20 = Connection(interstage_heater_2, "out1", HP_turbine_merger, "in3",
                  label="Interstage merge 2")
 
 
-c21 = Connection(interstage_merge, "out1", HP_feedwater_heater_stg2, "in1",
+c21 = Connection(HP_turbine_merger, "out1", HP_feedwater_heater_stg2, "in1",
                  label="LP interstage merge into stage 4")
 
 #5 Low pressure Turbines
 c22 = Connection(LP_turbine_stg_1, "out1", LP_splitter_stg_1, "in1",
-                 label="LP spliter stage 1")
+                 label="LP splitter stage 1")
 
 c23 = Connection(LP_splitter_stg_1, "out1", LP_turbine_stg_2, "in1",
                  label="LP turbine stage 2 En")
@@ -395,11 +395,11 @@ c55 = Connection(HP_feedwater_pump,"out1",  HP_feedwater_heater_stg1, "in2",
 c56 = Connection(HP_feedwater_heater_stg1, "out2", HP_feedwater_heater_stg2, "in2",
                  label="HP feedwater stage 1 into stage 2")
 
-c57 = Connection(HP_feedwater_heater_stg2, "out1", HP_feedwater_merger, "in2",
+c57 = Connection(HP_feedwater_heater_stg2, "out1", HP_heater_merger, "in2",
                  label="HP merger stage 1")
+c58 = Connection(HP_heater_merger, "out1", HP_feedwater_heater_stg1,"in1",
+                 label="HP FWH 2 outlet to FWH 1 hot inlet")
 
-c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1",
-                 label="HP merger stage 2")
 
 # Component Attributes
 steam_generator.set_attr(Q=1708e6,pr1=1,pr2=0.97)
@@ -408,10 +408,10 @@ interstage_heater_1.set_attr(Q=133.03e6)
 interstage_heater_2.set_attr(Q=93.65e6, pr2=0.97)
 
 #HP turbine outlets define in connections
-HP_turbine_stg_1.set_attr(eta_s=0.845)
-HP_turbine_stg_2.set_attr(eta_s=0.845)
-HP_turbine_stg_3.set_attr(eta_s=0.845)
-HP_turbine_stg_4.set_attr(eta_s=0.845)
+HP_turbine_stg_1.set_attr(eta_s=0.845,pr=0.613)
+HP_turbine_stg_2.set_attr(eta_s=0.845,pr=0.507)
+HP_turbine_stg_3.set_attr(eta_s=0.845,pr=0.32)
+HP_turbine_stg_4.set_attr(eta_s=0.845,pr=0.203)
 
 #Condenser
 
@@ -451,10 +451,9 @@ c2.set_attr(T=555)
 c3.set_attr(fluid=working_fluid, m=1886.91, T=543.9, p=5.57e6)
 
 # HP turbines outlets to splitters
-c6.set_attr(p=3.41e6)
-c8.set_attr(p=2.83e6)
-c10.set_attr(p=1.79e6)
-c12.set_attr(p=113e4)
+
+#c10.set_attr(p=1.79e6)
+#c12.set_attr(p=113e4)
 
 # MSH and Interstage
 c18.set_attr(x=0.05)  # MUST be 'x' (hard constraint), not 'x0'
@@ -462,6 +461,7 @@ c20.set_attr(x=0)     # Drain from interstage heater 2 must be liquid
 
 # LP Turbines
 # We must lock one of the parallel bleeds to LP FWH 4 to avoid a singularity
+c22.set_attr(h0=2.718e6)
 c24.set_attr(p0=427000, m=43.07)  # Changed from m0 to m to lock the split
 c27.set_attr(p0=256000, m0=74.8)
 c30.set_attr(p0=89600, x0=0.105, m0=42.82)
@@ -471,16 +471,6 @@ c31.set_attr(p0=1.133e6)
 c34.set_attr(p=40500)
 c35.set_attr(fluid=cooling_fluid, p=0.1e6, T=288.15)
 c36.set_attr(T=300.15)
-
-# LP feedwater heater DRAINS (Hot side outlets must be saturated liquid)
-
-c50.set_attr(x=0)
-c49.set_attr(x=0)
-c52.set_attr(x=0)
-
-# HP Feedwater heater DRAINS (Hot side outlets must be saturated liquid)
-c53.set_attr(x=0)
-c57.set_attr(x=0)
 
 # Deaerator Outlet
 c54.set_attr(x=0)
@@ -499,8 +489,8 @@ AP1000_plant.add_conns(
     c3, c4, c5,
 
     # HP Turbine
-    c6, c7, c7_1, c8, c9, c9_1,
-    c10, c11, c11_1, c12,
+    c6, c7,  c8, c9, c10, c11, c12,
+
 
     # Interstage
     c13, c14,c14_1, c15, c16_in, c16_out, c17, c18, c19, c20, c21,
@@ -520,7 +510,7 @@ AP1000_plant.add_conns(
     c51, c52, c53,
 
     # HP Heaters
-    c54, c55, c56, c57,c58
+    c54, c55, c56, c57, c58
 )
 
 AP1000_plant.add_conns(
@@ -555,7 +545,6 @@ try:
 
 except Exception as e:
     print(f"Error: {e}")
-    print(c14.p.val)
     AP1000_plant.print_variables()
     AP1000_plant.print_structural_analysis()
     AP1000_plant.print_incidence_matrix()
