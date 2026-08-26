@@ -223,8 +223,10 @@ c12 = Connection(HP_turbine_stg_4, "out1", Splitter_stg_4, "in1",
 #Interstage Heaters
 c13 = Connection(Splitter_stg_4, "out1", moisture_seperator_heater, "in1",
                  label="Moisture seperator heater")
+
 c14 = Connection(Splitter_stg_4, "out2", dearator, "in1",
                  label="Dearator input 1")
+
 c14_1 = Connection(Splitter_stg_4, "out3", LP_heater_merge_stg4, "in1",
                     label="HP crossover to LP FWH4")
 
@@ -379,7 +381,9 @@ c50 = Connection(LP_feedwater_heater_stg2, "out1", LP_heater_merge_stg1, "in1",
 c51 = Connection(LP_feedwater_heater_stg4, "out2", dearator, "in2", label="Dearator input 2")
 c52 = Connection(LP_feedwater_heater_stg4, "out1", LP_heater_merge_stg3, "in3",
                     label="LP FWH4 drain cascade to FWH3")
-c53 = Connection(HP_feedwater_heater_stg1, "out1", dearator, "in3", label="Dearator input 3")
+
+c53 = Connection(HP_feedwater_heater_stg1, "out1", dearator, "in3",
+                 label="Dearator input 3")
 
 
 
@@ -453,8 +457,13 @@ c3.set_attr(fluid=working_fluid, m=1886.91, T=543.9, p=5.57e6)
 # HP turbines outlets to splitters
 c6.set_attr(p=3.41e6)
 c8.set_attr(p=2.83e6)
+c9.set_attr(p0=2.83e6,h0=2.686e6,m0=89.91)#
+c9_1.set_attr(m0=89.90)
 c10.set_attr(p=1.79e6)
+c11.set_attr(h0=2.61e6,m0=1453.53,p0=1.133e6)#
 c12.set_attr(p=113e4)
+c14.set_attr(m0=125.1,h0=2.5400e6)
+c14_1.set_attr(m0=125, h0=2.5e6)
 
 # MSH and Interstage
 c18.set_attr(x=0.05)  # MUST be 'x' (hard constraint), not 'x0'
@@ -462,31 +471,49 @@ c20.set_attr(x=0)     # Drain from interstage heater 2 must be liquid
 
 # LP Turbines
 # We must lock one of the parallel bleeds to LP FWH 4 to avoid a singularity
+c23.set_attr()#
 c24.set_attr(p0=427000, m=43.07)  # Changed from m0 to m to lock the split
+c25.set_attr(p0=3.41e6)#
+c26.set_attr(p0=2.83e6)#
 c27.set_attr(p0=256000, m0=74.8)
+c28.set_attr(p0=86598.2,x0=0.90)#
+c29.set_attr()#
 c30.set_attr(p0=89600, x0=0.105, m0=42.82)
-c31.set_attr(p0=1.133e6)
+c31.set_attr(p0=40500)
+c32.set_attr()#
+c33.set_attr(m0=82.6)#
 
 # Condenser
 c34.set_attr(p=40500)
 c35.set_attr(fluid=cooling_fluid, p=0.1e6, T=288.15)
 c36.set_attr(T=300.15)
-
+c42.set_attr(m0=125, h0=6.0e5)
 # LP feedwater heater DRAINS (Hot side outlets must be saturated liquid)
 
 c50.set_attr(x=0)
 c49.set_attr(x=0)
-c52.set_attr(x=0)
+c52.set_attr(x=0, m0=42.8, h0=5.7e5)
 
 # HP Feedwater heater DRAINS (Hot side outlets must be saturated liquid)
-c53.set_attr(x=0)
-c57.set_attr(x=0)
+c53.set_attr(x=0,m0=305.90,h0=812e3)
+c54.set_attr(x=0,m0=1886.91,h0=781100) #Deaerator outlet
+c55.set_attr(m0=1886.91, h0=790e3)
+c56.set_attr(m0=1886.91, h0=1.05e6)
+c57.set_attr(m0=305.9, h0=1.05e6)
+c58.set_attr(T=499.8,m0=305.90,h0=2187395.66)# 1858541 +569189 = mass going into HP FWH Hot side inlet
 
-# Deaerator Outlet
-c54.set_attr(x=0)
+
 
 # NO constraints on c55, c13, c14, c11_1, c45, or c51. Let TESPy calculate them!
 
+
+#Power buss connections
+e_gen_in.set_attr(E0=1270e6)
+e_gen_out.set_attr(E0=1250e6)
+e_hpfw_in.set_attr(E0=20e6)
+e_lpfw_in.set_attr(E0=5e6)
+e_grid.set_attr(E0=1200e6)
+turbine_power_conns[5].set_attr(E0=180e6)  # HP_turbine_stg_1 is index 5 in your `turbines` list
 
 AP1000_plant.add_conns(
     # Primary / Steam Generator
