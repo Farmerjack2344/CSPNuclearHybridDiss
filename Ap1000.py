@@ -450,7 +450,7 @@ c8.set_attr(p=2.83e6)
 #c9.set_attr(p=2.83e6)#c9 needs pressure
 c9_1.set_attr(m=89.90)#h=2685600 becasue c9 has pressure define this may over define
 #c10.set_attr(p=1785742)
-c11.set_attr(p=1.13e6)#Need pressure for c11
+c11.set_attr(p=1.13e6)#Need pressure for c1_1
 c11_1.set_attr(m=71.72)#HP feed water merger in
 #c12.set_attr(p=113e4)#m=1452.34)#
 #c13.set_attr(m=1452.3)
