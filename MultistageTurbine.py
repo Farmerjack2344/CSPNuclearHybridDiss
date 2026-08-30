@@ -140,14 +140,22 @@ class MultiStageExtractionTurbine(Turbomachine):
     # ------------------------------------------------------------------
     def get_parameters(self):
         parameters = super().get_parameters()
-        parameters = {
-            "num_stages": dc_simple(
-                dtype="int", description="number of expansion stages"
-            ),
-        }
+
+        parameters["P"].func = self.energy_balance_func
+        parameters["P"].dependents = self.energy_balance_dependents
+        parameters["P"].calc = self.calc_P
+        parameters["P"].max_val = 0
+
+        parameters["num_stages"] = dc_simple(
+            dtype="int",
+            description="number of expansion stages"
+        )
+
         for i in range(1, MAX_STAGES + 1):
             parameters[f"eta_s{i}"] = dc_cp(
-                min_val=0, max_val=1, num_eq_sets=1,
+                min_val=0,
+                max_val=1,
+                num_eq_sets=1,
                 func=self._stage_eta_s_func,
                 func_params={"stage": i},
                 dependents=self._stage_eta_s_dependents,
@@ -246,3 +254,41 @@ class MultiStageExtractionTurbine(Turbomachine):
         i = self._stage_inlet_conn(stage)
         o = self._stage_outlet_conn(stage)
         return [i.p, i.h, o.p, o.h]
+
+    def energy_balance_func(self):
+        """
+        Energy balance for a turbine with multiple extraction outlets.
+
+        TESPy turbine sign convention:
+        P < 0 means power is produced by the turbine.
+        """
+
+        power_fluid = -self.inl[0].m.val_SI * self.inl[0].h.val_SI
+
+        for o in self.outl:
+            power_fluid += o.m.val_SI * o.h.val_SI
+
+        return self.P.val_SI - power_fluid
+
+    def energy_balance_dependents(self):
+        return (
+                [self.P, self.inl[0].m, self.inl[0].h]
+                + [
+                    variable
+                    for o in self.outl
+                    for variable in [o.m, o.h]
+                ]
+        )
+
+    def calc_P(self):
+        """
+        Calculate turbine power from the overall steady-flow
+        energy balance.
+        """
+
+        P = -self.inl[0].m.val_SI * self.inl[0].h.val_SI
+
+        for o in self.outl:
+            P += o.m.val_SI * o.h.val_SI
+
+        return P
