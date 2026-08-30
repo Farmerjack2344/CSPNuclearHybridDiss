@@ -4,11 +4,11 @@ from tespy.components import (
     SimpleHeatExchanger, Source, Sink,
     HeatExchanger, Merge, Splitter, Valve
 )
-from Ap1000 import LP_turbine_stg_1
+
 from MultistageTurbine import MultiStageExtractionTurbine
 
 from tespy.connections import Connection
-# create a network object with R134a as fluid
+
 AP1000_plant = Network()
 AP1000_plant.units.set_defaults(
     temperature="K",
@@ -33,8 +33,8 @@ condenser_merge = Merge('condenser merge')
 HP_turbine = MultiStageExtractionTurbine('HP turbine',num_stages=3)
 
 
-LP_turbine_stg_1 = Turbine('LP turbine stage 1')
-LP_turbine_stg_2 = MultiStageExtractionTurbine('LP turbine stage 2',num_stages=1)
+LP_turbine_stg1 = Turbine('LP turbine stage 1')
+#LP_turbine_stg2 = MultiStageExtractionTurbine('LP turbine stage 2',num_stages=1)
 
 
 
@@ -56,13 +56,13 @@ c1 = Connection(cc, 'out1', HP_turbine, 'in1')
 # MultiStageExtractionTurbine: out1 is after stage 1 (highest outlet P),
 # outN is the exhaust (lowest P). Stage i+1 uses out{i}'s (p, h) as its inlet.
 c2 = Connection(HP_turbine, 'out3',
-                LP_turbine_stg_1, 'in1')
+                LP_turbine_stg1, 'in1')
 
 c3 = Connection(HP_turbine, 'out1',
                 HP_FWH_2, 'in1')
 
 
-c5 = Connection(LP_turbine_stg_1, 'out1',
+c5 = Connection(LP_turbine_stg1, 'out1',
                 condenser_merge, 'in1')
 #c5 = Connection(LP_turbine_stg_1, 'out1',
 #                LP_turbine_stg_2, 'in1')
@@ -115,7 +115,7 @@ steam_generator.set_attr(
     pr=0.97)
 
 HP_turbine.set_attr(eta_s1=0.845,eta_s2=0.845,eta_s3=0.845)
-LP_turbine.set_attr(eta_s=0.845)
+LP_turbine_stg1.set_attr(eta_s=0.845)
 
 HP_FWH_2.set_attr(
     ttd_l=5,
