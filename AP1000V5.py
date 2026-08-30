@@ -4,6 +4,7 @@ from tespy.components import (
     SimpleHeatExchanger, Source, Sink,
     HeatExchanger, Merge, Splitter, Valve
 )
+from Ap1000 import LP_turbine_stg_1
 from MultistageTurbine import MultiStageExtractionTurbine
 
 from tespy.connections import Connection
@@ -32,11 +33,16 @@ condenser_merge = Merge('condenser merge')
 HP_turbine = MultiStageExtractionTurbine('HP turbine',num_stages=3)
 
 
-LP_turbine = Turbine('LP turbine')
+LP_turbine_stg_1 = Turbine('LP turbine stage 1')
+LP_turbine_stg_2 = MultiStageExtractionTurbine('LP turbine stage 2',num_stages=1)
+
+
 
 HP_FWH_2 = HeatExchanger('HP FWH 2')
 HP_FWH_1 = HeatExchanger('HP FWH 1')
 HP_FWH_M = Merge('HP FWH merge')
+
+
 
 HP_FWH_valve_1 = Valve('HP FWH drain valve 1')
 HP_FWH_valve_2 = Valve('HP FWH drain valve 2')
@@ -50,14 +56,18 @@ c1 = Connection(cc, 'out1', HP_turbine, 'in1')
 # MultiStageExtractionTurbine: out1 is after stage 1 (highest outlet P),
 # outN is the exhaust (lowest P). Stage i+1 uses out{i}'s (p, h) as its inlet.
 c2 = Connection(HP_turbine, 'out3',
-                LP_turbine, 'in1')
+                LP_turbine_stg_1, 'in1')
 
 c3 = Connection(HP_turbine, 'out1',
                 HP_FWH_2, 'in1')
 
 
-c5 = Connection(LP_turbine, 'out1',
+c5 = Connection(LP_turbine_stg_1, 'out1',
                 condenser_merge, 'in1')
+#c5 = Connection(LP_turbine_stg_1, 'out1',
+#                LP_turbine_stg_2, 'in1')
+#c6 = Connection(LP_turbine_stg_2, 'out1',
+#                condenser_merge, 'in1')
 
 c6 = Connection(condenser_merge, 'out1',
                 condenser, 'in1')
