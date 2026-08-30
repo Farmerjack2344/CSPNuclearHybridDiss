@@ -29,8 +29,8 @@ cc = CycleCloser('cycle closer')
 steam_generator= SimpleHeatExchanger('steam generator')
 condenser = Condenser('main condenser')
 condenser_merge = Merge('condenser merge')
-HP_turbine = MultiStageExtractionTurbine('HP turbine',num_stages=1)
-HP_splitter = Splitter('HP splitter', num_out=2)
+HP_turbine = MultiStageExtractionTurbine('HP turbine',num_stages=2)
+
 
 LP_turbine = Turbine('LP turbine')
 
@@ -45,14 +45,11 @@ pump = Pump('feed pump')
 c1 = Connection(cc, 'out1', HP_turbine, 'in1')
 
 c2 = Connection(HP_turbine, 'out1',
-                HP_splitter, 'in1')
-
-c3 = Connection(HP_splitter, 'out1',
                 LP_turbine, 'in1')
 
-c4 = Connection(
-    HP_splitter, 'out2',
-    HP_FWH, 'in1')
+c3 = Connection(HP_turbine, 'out2',
+                HP_FWH, 'in1')
+
 
 c5 = Connection(LP_turbine, 'out1',
                 condenser, 'in1')
@@ -84,11 +81,11 @@ c0 = Connection(steam_generator,
 c1_1 = Connection(cwso, 'out1', condenser, 'in2', label='11')
 c1_2 = Connection(condenser, 'out2', cwsi, 'in1', label='12')
 
-my_plant.add_conns(c1, c2, c3, c4, c5,c6,c7,c8,c9,c10, c11, c0, c1_1, c1_2)
+my_plant.add_conns(c1, c2, c3, c5,c6,c7,c8,c9,c10, c11, c0, c1_1, c1_2)
 
 condenser.set_attr(pr1=1, pr2=0.98)
 steam_generator.set_attr(Q=1707e6)
-HP_turbine.set_attr(eta_s1=0.845)
+HP_turbine.set_attr(eta_s1=0.845,eta_s2=0.845)
 LP_turbine.set_attr(eta_s=0.845)
 
 HP_FWH.set_attr(
@@ -98,7 +95,7 @@ HP_FWH.set_attr(
 
 )
 
-c4.set_attr(m=89.9)
+c3.set_attr(m=89.9,p=2.83e6)
 
 pump.set_attr(eta_s=0.804)
 
