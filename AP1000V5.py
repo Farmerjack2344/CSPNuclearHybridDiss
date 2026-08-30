@@ -81,38 +81,38 @@ c7 = Connection(
     condensate_pump, "in1"
 )
 
-c7a = Connection(
+c8 = Connection(
     condensate_pump, "out1",
     LP_FWH, "in1"
 )
 
-c8 = Connection(
+c9 = Connection(
     LP_FWH, "out1",
     HP_pump, "in1"
 )
 
-c9 = Connection(HP_pump, "out1", HP_FWH_1, "in2")
+c10 = Connection(HP_pump, "out1", HP_FWH_1, "in2")
 
-c10 = Connection(HP_FWH_1, "out2", HP_FWH_2, "in2")
+c11 = Connection(HP_FWH_1, "out2", HP_FWH_2, "in2")
 
-c11 = Connection(HP_FWH_valve_2, "out1", HP_FWH_M, "in1")
-c12 = Connection(HP_turbine, "out2", HP_FWH_M, "in2")
+c12 = Connection(HP_FWH_valve_2, "out1", HP_FWH_M, "in1")
+c13 = Connection(HP_turbine, "out2", HP_FWH_M, "in2")
 
-c13 = Connection(HP_FWH_M, "out1", HP_FWH_1, "in1")
-c14 = Connection(HP_FWH_1, "out1", HP_FWH_valve_1, "in1")
-
-
+c14 = Connection(HP_FWH_M, "out1", HP_FWH_1, "in1")
+c15 = Connection(HP_FWH_1, "out1", HP_FWH_valve_1, "in1")
 
 
-c15 = Connection(HP_FWH_2, 'out2',
+
+
+c16 = Connection(HP_FWH_2, 'out2',
                  steam_generator, 'in1')
 
-c16 = Connection(
+c17 = Connection(
     HP_FWH_2, 'out1',
     HP_FWH_valve_2, 'in1')
 
 
-c17 = Connection(HP_FWH_valve_1, "out1", condenser_merge, "in2")
+c18 = Connection(HP_FWH_valve_1, "out1", condenser_merge, "in2")
 
 c0 = Connection(steam_generator,
                 'out1', cc, 'in1')
@@ -164,39 +164,39 @@ c1.set_attr(T=600, p=150e5, m=1886.91, fluid=working_fluid)
 # Stage-2 extraction mass is a result of ttd_l; stage-1 mass is fixed to keep the problem square.
 c2.set_attr(p=113e4)  # HP exhaust -> LP
 c3.set_attr(m=89.9, p=2.83e6)  # stage-1 extraction -> HP FWH 2
-c12.set_attr(m0=71.72, p=1.79e6)  # stage-2 extraction -> HP FWH merge
+c13.set_attr(m0=71.72, p=1.79e6)  # stage-2 extraction -> HP FWH merge
 
-c7a.set_attr(p=0.5e6)
+c8.set_attr(p=0.5e6)
 
-c8.set_attr(
+c9.set_attr(
     m0=1886.91,
     p0=4.0e4,
     h0=3.9e5
 )
 
-c9.set_attr(
+c10.set_attr(
     m0=1886.91,
     p0=16.4e6,
     h0=4.1e5
 )
 
-c10.set_attr(
+c11.set_attr(
     m0=1886.91,
     h0=4.7e5
 )
 
 # HP FWH merge out -> HP FWH 1 hot in
-c13.set_attr(m0=161.6, h0=1.0e6)
+c14.set_attr(m0=161.6, h0=1.0e6)
 
 c5.set_attr(p=40500)  # LP turbine outlet
-c13.set_attr(m0=161.6, h0=2.5e6)
-c14.set_attr(m0=161.6, h0=4.2e5)
-c16.set_attr(m0=89.9, h0=4.6e5, x0=0)
-c17.set_attr(m0=161.6, h0=4.2e5)
+c14.set_attr(m0=161.6, h0=2.5e6)
+c15.set_attr(m0=161.6, h0=4.2e5)
+c17.set_attr(m0=89.9, h0=4.6e5, x0=0)
+c18.set_attr(m0=161.6, h0=4.2e5)
 
 AP1000_plant.add_conns(c1, c2, c3, c5,
-                       c6, c7, c7a,c8, c9, c10, c11, c12, c13, c14,
-                       c15, c16, c17, c0, c1_1, c1_2)
+                       c6, c7, c8, c9, c10, c11, c12, c13, c14, c15,
+                       c16, c17, c18, c0, c1_1, c1_2)
 
 try:
     AP1000_plant.solve(
