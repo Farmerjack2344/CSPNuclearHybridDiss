@@ -34,9 +34,12 @@ HP_turbine = MultiStageExtractionTurbine('HP turbine',num_stages=2)
 
 LP_turbine = Turbine('LP turbine')
 
-HP_FWH = HeatExchanger('HP FWH')
+HP_FWH_2 = HeatExchanger('HP FWH')
+HP_FWH_1 = HeatExchanger('HP FWH')
+HP_FWH_M = Merge('HP FWH merge')
 
-HP_FWH_valve = Valve('HP FWH drain valve')
+HP_FWH_valve_1 = Valve('HP FWH drain valve 1')
+HP_FWH_valve_2 = Valve('HP FWH drain valve 2')
 
 pump = Pump('feed pump')
 
@@ -48,7 +51,7 @@ c2 = Connection(HP_turbine, 'out1',
                 LP_turbine, 'in1')
 
 c3 = Connection(HP_turbine, 'out2',
-                HP_FWH, 'in1')
+                HP_FWH_2, 'in1')
 
 
 c5 = Connection(LP_turbine, 'out1',
@@ -61,18 +64,31 @@ c7 = Connection(condenser_merge, 'out1',
                 pump, 'in1')
 
 c8 = Connection(pump, 'out1',
-                HP_FWH, 'in2')
+                HP_FWH_2, 'in2')
+#c8 = Connection(pump, "out1", HP_FWH_1, "in2")
 
-c9 = Connection(HP_FWH, 'out2',
+#c8 = Connection(HP_FWH_1, "out2", HP_FWH_2, "in2")
+
+#c8 = Connection(HP_FWH_valve_2, "out1", HP_FWH_M, "in1")
+#c8 = Connection(HP_turbine, "out3", HP_FWH_M, "in2")
+
+#c8 = Connection(HP_FWH_M,"out1", HP_FWH_1,"in1")
+#C8 = Connection(HP_FWH_1, "out1", HP_valve_1, "in1")
+
+
+
+
+c9 = Connection(HP_FWH_2, 'out2',
                 steam_generator, 'in1')
 
 c10 = Connection(
-    HP_FWH, 'out1',
-    HP_FWH_valve, 'in1')
+    HP_FWH_2, 'out1',
+    HP_FWH_valve_2, 'in1')
 
 c11 = Connection(
-    HP_FWH_valve, 'out1',
+    HP_FWH_valve_2, 'out1',
     condenser_merge, 'in2')
+#c11 = Connection(HP_valve_1, "out1", condenser_merge, "in2")
 
 c0 = Connection(steam_generator,
                 'out1', cc, 'in1')
@@ -88,7 +104,7 @@ steam_generator.set_attr(Q=1707e6)
 HP_turbine.set_attr(eta_s1=0.845,eta_s2=0.845)
 LP_turbine.set_attr(eta_s=0.845)
 
-HP_FWH.set_attr(
+HP_FWH_2.set_attr(
     Q=137.85e6,
     pr1=0.97,
     pr2=0.97
