@@ -58,6 +58,7 @@ when a component doesn't need a hand-optimised analytic derivative.
 
 from tespy.components.component import Component
 from tespy.components.component import component_registry
+from tespy.components.turbomachinery.base import Turbomachine
 from tespy.tools.data_containers import ComponentMandatoryConstraints as dc_cmc
 from tespy.tools.data_containers import ComponentProperties as dc_cp
 from tespy.tools.data_containers import SimpleDataContainer as dc_simple
@@ -70,7 +71,7 @@ MAX_STAGES = 12
 
 
 @component_registry
-class MultiStageExtractionTurbine(Component):
+class MultiStageExtractionTurbine(Turbomachine):
     r"""
     Turbine with an arbitrary number of expansion stages and extraction
     outlets.
@@ -138,6 +139,7 @@ class MultiStageExtractionTurbine(Component):
     # Parameters (num_stages + up to MAX_STAGES optional eta_s{i})
     # ------------------------------------------------------------------
     def get_parameters(self):
+        parameters = super().get_parameters()
         parameters = {
             "num_stages": dc_simple(
                 dtype="int", description="number of expansion stages"
@@ -152,6 +154,7 @@ class MultiStageExtractionTurbine(Component):
                 quantity="efficiency",
                 description=f"isentropic efficiency of stage {i}",
             )
+
         return parameters
 
     # ------------------------------------------------------------------
