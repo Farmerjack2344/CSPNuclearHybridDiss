@@ -4,7 +4,7 @@ from tespy.components import (
     SimpleHeatExchanger, Source, Sink,
     HeatExchanger, Merge, Splitter, Valve
 )
-
+from MultistageTurbine import MultiStageExtractionTurbine
 
 from tespy.connections import Connection
 # create a network object with R134a as fluid
@@ -29,7 +29,7 @@ cc = CycleCloser('cycle closer')
 steam_generator= SimpleHeatExchanger('steam generator')
 condenser = Condenser('main condenser')
 condenser_merge = Merge('condenser merge')
-HP_turbine = Turbine('HP turbine')
+HP_turbine = MultiStageExtractionTurbine('HP turbine',num_stages=1)
 HP_splitter = Splitter('HP splitter', num_out=2)
 
 LP_turbine = Turbine('LP turbine')
@@ -88,7 +88,7 @@ my_plant.add_conns(c1, c2, c3, c4, c5,c6,c7,c8,c9,c10, c11, c0, c1_1, c1_2)
 
 condenser.set_attr(pr1=1, pr2=0.98)
 steam_generator.set_attr(Q=1707e6)
-HP_turbine.set_attr(eta_s=0.845)
+HP_turbine.set_attr(eta_s1=0.845)
 LP_turbine.set_attr(eta_s=0.845)
 
 HP_FWH.set_attr(
