@@ -1,19 +1,15 @@
-import components
 from tespy.networks import Network
-from tespy.components import (Compressor, Condenser, HeatExchanger, Turbine, Splitter,
-                              Merge, CycleCloser, Drum, Source, Sink, Pump, DropletSeparator,
-                              PowerBus, PowerSink, Motor, SteamTurbine, Valve
+from tespy.components import (Condenser, HeatExchanger, Splitter,
+                              Merge, CycleCloser, Source, Sink, Pump, DropletSeparator,
+                              SteamTurbine, Valve
                               )
-from tespy.components.power.generator import Generator
-from tespy.connections import Connection, PowerConnection
+from tespy.connections import Connection
 
 #Use TTD
 
 coolant = {"water":1}
 working_fluid = {"water":1}
 cooling_fluid = {"water":1}
-
-from components import Deareator
 
 AP1000_plant = Network()
 #Components
@@ -24,6 +20,15 @@ reactor_in = Sink('Reactor In')
 
 steam_generator = HeatExchanger('Steam Generator')#
 ms_drain_valve = Valve("MS Drain Valve")
+hp_crossover_valve = Valve("HP Crossover to LP FWH4 Valve")
+fwh4_drain_valve = Valve("LP FWH4 Drain Valve")
+fwh3_drain_valve = Valve("LP FWH3 Drain Valve")
+fwh2_drain_valve = Valve("LP FWH2 Drain Valve")
+ih1_drain_valve = Valve("Interstage Heater 1 Drain Valve")
+ih2_drain_valve = Valve("Interstage Heater 2 Drain Valve")
+hp_fwh2_drain_valve = Valve("HP FWH2 Drain Valve")
+hp_fwh1_drain_valve = Valve("HP FWH1 Drain Valve")
+fwh1_drain_valve = Valve("LP FWH1 Drain Valve")
 
 pre_turbine_split = Splitter('Pre-Turbine Split', num_out=2)
 
@@ -68,34 +73,9 @@ LP_splitter_stg_4 = Splitter('LP Spliter Stage 4', num_out=2)
 
 LP_turbine_stg_5 = SteamTurbine('LP Turbine Stage 5')
 
-#Generator
-turbines = [LP_turbine_stg_1, LP_turbine_stg_2, LP_turbine_stg_3, LP_turbine_stg_4, LP_turbine_stg_5,
-            HP_turbine_stg_1, HP_turbine_stg_2, HP_turbine_stg_3, HP_turbine_stg_4]
-
-mechanical_bus = PowerBus("Mechanical Bus ", num_in=9,num_out=1)
-generator = Generator('Generator')
-
-turbine_power_conns = [
-    PowerConnection(turb, "power", mechanical_bus, f"power_in{i+1}", label=f"turb_power_{i+1}")
-    for i, turb in enumerate(turbines)
-]
-
-# Mechanical bus -> Generator
-e_gen_in = PowerConnection(mechanical_bus, "power_out1", generator, "power_in", label="mech_to_gen")
-
-# --- Electrical bus: generator feeds it, motors + grid draw from it ---
-electrical_bus = PowerBus("Electrical Bus", num_in=1, num_out=3)
-
-
-# Motors driving your three pumps
-lp_fw_pump_motor = Motor("LP Feedwater Pump Motor")
-hp_fw_pump_motor = Motor("HP Feedwater Pump Motor")
-
-generator.set_attr(eta=0.985)
-lp_fw_pump_motor.set_attr(eta=0.95)
-hp_fw_pump_motor.set_attr(eta=0.95)
-
-grid = PowerSink("Grid")
+# Generator / PowerBus network omitted: the extra PowerConnections couple into the
+# Jacobian and were a recurring source of singularities. Turbine and pump work
+# still come from eta_s; net output is summed after the thermodynamic solve.
 
 
 
@@ -226,8 +206,10 @@ c13 = Connection(Splitter_stg_4, "out1", moisture_seperator_heater, "in1",
 c14 = Connection(Splitter_stg_4, "out2", dearator, "in1",
                  label="Dearator input 1")
 
-c14_1 = Connection(Splitter_stg_4, "out3", LP_heater_merge_stg4, "in1",
-                    label="HP crossover to LP FWH4")
+c14_1_in = Connection(Splitter_stg_4, "out3", hp_crossover_valve, "in1",
+                      label="HP crossover to valve")
+c14_1 = Connection(hp_crossover_valve, "out1", LP_heater_merge_stg4, "in1",
+                   label="HP crossover to LP FWH4")
 
 #For moisture seperator out1 is liquid and out 2 is vapour
 c15 = Connection(moisture_seperator_heater,"out2", interstage_heater_1, "in2",
@@ -238,13 +220,17 @@ c16_out = Connection(ms_drain_valve, "out1", LP_heater_merge_stg3, "in1", label=
 
 c17 = Connection(interstage_heater_1, "out2", interstage_heater_2, "in2",
                  label="Interstage heater stage 2")
-c18 = Connection(interstage_heater_1, "out1", interstage_merge, "in1",
+c18_in = Connection(interstage_heater_1, "out1", ih1_drain_valve, "in1",
+                    label="Interstage heater 1 drain to valve")
+c18 = Connection(ih1_drain_valve, "out1", interstage_merge, "in1",
                  label="Interstage merge 1")
 
 c19 = Connection(interstage_heater_2, "out2", LP_turbine_stg_1, "in1",
                  label="LP turbine stage 1")
 
-c20 = Connection(interstage_heater_2, "out1", interstage_merge, "in2",
+c20_in = Connection(interstage_heater_2, "out1", ih2_drain_valve, "in1",
+                    label="Interstage heater 2 drain to valve")
+c20 = Connection(ih2_drain_valve, "out1", interstage_merge, "in2",
                  label="Interstage merge 2")
 
 
@@ -287,50 +273,12 @@ c33 = Connection(LP_splitter_stg_4, "out2", LP_heater_merge_stg1, "in2", label="
 
 
 
-#6 Power bus connections
-
-e_lpfw_in = PowerConnection(
-    electrical_bus, "power_out1",
-    lp_fw_pump_motor, "power_in",
-    label="elec_to_lpfw_motor"
-)
-
-e_lpfw_out = PowerConnection(
-    lp_fw_pump_motor, "power_out",
-    LP_feedwater_pump, "power",
-    label="lpfw_motor_to_pump"
-)
-
-e_hpfw_in = PowerConnection(
-    electrical_bus, "power_out2",
-    hp_fw_pump_motor, "power_in",
-    label="elec_to_hpfw_motor"
-)
-
-e_hpfw_out = PowerConnection(
-    hp_fw_pump_motor, "power_out",
-    HP_feedwater_pump, "power",
-    label="hpfw_motor_to_pump"
-)
-
-e_gen_out = PowerConnection(
-    generator, "power_out",
-    electrical_bus, "power_in1",
-    label="gen_to_elec"
-)
-
-e_grid = PowerConnection(
-    electrical_bus, "power_out3",
-    grid, "power",
-    label="elec_to_grid"
-)
-
-# Efficiencies
+#6 Power bus connections — removed; pumps use eta_s directly
 
 
 #7 Condenser comes next (This is where one of the configuration will interface)
-c34 = Connection(LP_turbine_stg_5, "out1", condenser, "in1",
-                 label="Condenser")#in1/out1 is hot side
+c34 = Connection(LP_turbine_stg_5, "out1", condenser_merger, "in1",
+                 label="LP exhaust to condenser merge")
 
 c35 = Connection(cooling_water_in, "out1", condenser,"in2",
                  label="Cooling water in")
@@ -338,18 +286,20 @@ c35 = Connection(cooling_water_in, "out1", condenser,"in2",
 c36 = Connection(condenser, "out2", cooling_water_out, "in1",
                  label="Cooling water out")
 
-c37 = Connection(condenser, "out1", condenser_merger, "in1",
-                 label="Condenser merger")
+c37 = Connection(condenser_merger, "out1", condenser, "in1",
+                 label="Merged exhaust and FWH1 drain to condenser")
 
-c38 = Connection(condenser_merger, "out1", LP_feedwater_pump, "in1",
+c38 = Connection(condenser, "out1", LP_feedwater_pump, "in1",
                  label="LP feedwater pump")
 
 #8 Heater
 ## in1/out1 = hot side, in2/out2 = cold side
 c39 = Connection(LP_heater_merge_stg1, "out1", LP_feedwater_heater_stg1, "in1", label="LP feedwater heater 1 in")
 
-c40 = Connection(LP_feedwater_heater_stg1, "out1", condenser_merger, "in2",
-                 label="Condenser merger Interstage stream")
+c40_in = Connection(LP_feedwater_heater_stg1, "out1", fwh1_drain_valve, "in1",
+                    label="LP FWH1 drain to valve")
+c40 = Connection(fwh1_drain_valve, "out1", condenser_merger, "in2",
+                 label="LP FWH1 drain to condenser merge")
 c41 = Connection(LP_heater_merge_stg2, "out1", LP_feedwater_heater_stg2, "in1",
                  label="LP feedwater heater 2 Hot in")
 c42 = Connection(LP_heater_merge_stg3, "out1", LP_feedwater_heater_stg3, "in1",
@@ -371,17 +321,25 @@ c47 = Connection(LP_feedwater_heater_stg3, "out2", LP_feedwater_heater_stg4, "in
                  label="LP feedwater heater 4 Cold in")
 
 
-c49 = Connection(LP_feedwater_heater_stg3, "out1", LP_heater_merge_stg2, "in1",
+c49_in = Connection(LP_feedwater_heater_stg3, "out1", fwh3_drain_valve, "in1",
+                    label="LP FWH3 drain to valve")
+c49 = Connection(fwh3_drain_valve, "out1", LP_heater_merge_stg2, "in1",
                  label="LP FWH3 drain cascade to FWH2")
-c50 = Connection(LP_feedwater_heater_stg2, "out1", LP_heater_merge_stg1, "in1",
+c50_in = Connection(LP_feedwater_heater_stg2, "out1", fwh2_drain_valve, "in1",
+                    label="LP FWH2 drain to valve")
+c50 = Connection(fwh2_drain_valve, "out1", LP_heater_merge_stg1, "in1",
                  label="LP FWH2 drain cascade to FWH1")
 
 #9 Deaerator
 c51 = Connection(LP_feedwater_heater_stg4, "out2", dearator, "in2", label="Dearator input 2")
-c52 = Connection(LP_feedwater_heater_stg4, "out1", LP_heater_merge_stg3, "in3",
-                    label="LP FWH4 drain cascade to FWH3")
+c52_in = Connection(LP_feedwater_heater_stg4, "out1", fwh4_drain_valve, "in1",
+                    label="LP FWH4 drain to valve")
+c52 = Connection(fwh4_drain_valve, "out1", LP_heater_merge_stg3, "in3",
+                 label="LP FWH4 drain cascade to FWH3")
 
-c53 = Connection(HP_feedwater_heater_stg1, "out1", dearator, "in3",
+c53_in = Connection(HP_feedwater_heater_stg1, "out1", hp_fwh1_drain_valve, "in1",
+                    label="HP FWH1 drain to valve")
+c53 = Connection(hp_fwh1_drain_valve, "out1", dearator, "in3",
                  label="Dearator input 3")
 
 
@@ -398,7 +356,9 @@ c55 = Connection(HP_feedwater_pump,"out1",  HP_feedwater_heater_stg1, "in2",
 c56 = Connection(HP_feedwater_heater_stg1, "out2", HP_feedwater_heater_stg2, "in2",
                  label="HP feedwater stage 1 into stage 2")
 
-c57 = Connection(HP_feedwater_heater_stg2, "out1", HP_feedwater_merger, "in2",
+c57_in = Connection(HP_feedwater_heater_stg2, "out1", hp_fwh2_drain_valve, "in1",
+                    label="HP FWH2 drain to valve")
+c57 = Connection(hp_fwh2_drain_valve, "out1", HP_feedwater_merger, "in2",
                  label="HP merger stage 1")
 
 c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1",
@@ -407,10 +367,11 @@ c58 = Connection(HP_feedwater_merger, "out1", HP_feedwater_heater_stg1, "in1",
 # Component Attributes
 steam_generator.set_attr(Q=1708e6,pr1=1,pr2=0.97)
 
-interstage_heater_1.set_attr(Q=133.03e6)
-interstage_heater_2.set_attr(Q=93.65e6, pr2=0.97)
+interstage_heater_1.set_attr(Q=133.03e6, pr1=0.97, pr2=0.97)
+interstage_heater_2.set_attr(Q=93.65e6, pr1=0.97, pr2=0.97)
+# Drain/crossover valves have no fixed pr: they throttle to the downstream merge pressure.
 
-#HP turbine outlets define in connections
+# Series HP stages: outlet pressures (not V4 parallel-turbine pr values).
 HP_turbine_stg_1.set_attr(eta_s=0.845)
 HP_turbine_stg_2.set_attr(eta_s=0.845)
 HP_turbine_stg_3.set_attr(eta_s=0.845)
@@ -424,95 +385,115 @@ condenser.set_attr(pr2=1,pr1=0.97)
 LP_turbine_stg_1.set_attr(eta_s=0.882,pr=0.39)
 LP_turbine_stg_2.set_attr(eta_s=0.906,pr=0.6)
 LP_turbine_stg_3.set_attr(eta_s=0.894,pr=0.34)
-LP_turbine_stg_4.set_attr(eta_s=0.894,pr=0.46)
+LP_turbine_stg_4.set_attr(eta_s=0.894)
 LP_turbine_stg_5.set_attr(eta_s=0.894)
 
 
 
 # LP feedwater heaters
 LP_feedwater_pump.set_attr(eta_s=0.80)
-LP_feedwater_heater_stg1.set_attr(Q=136.06e6, pr2=0.97)#Set Q, took out ttd_u
-LP_feedwater_heater_stg2.set_attr(Q=49.4e6,pr2=0.98)
-LP_feedwater_heater_stg3.set_attr(Q=81.4e6, pr2=0.98)
-LP_feedwater_heater_stg4.set_attr(Q=96.59e6, pr2=0.97)# Set Q Took out ttd_u
+LP_feedwater_heater_stg1.set_attr(Q=136.06e6, pr1=0.97, pr2=0.97)
+LP_feedwater_heater_stg2.set_attr(Q=49.4e6, pr1=0.98, pr2=0.98)
+LP_feedwater_heater_stg3.set_attr(Q=81.4e6, pr1=0.98, pr2=0.98)
+LP_feedwater_heater_stg4.set_attr(Q=96.59e6, pr1=0.97, pr2=0.97)
 
 #HP feedwater heaters
-HP_feedwater_pump.set_attr(eta_s=0.8078 ,pr=6.90)
+HP_feedwater_pump.set_attr(eta_s=0.8078)
 
-HP_feedwater_heater_stg1.set_attr(Q=147.91e6, pr2=0.97)
-HP_feedwater_heater_stg2.set_attr(Q=15.44e6)
+HP_feedwater_heater_stg1.set_attr(Q=147.91e6, pr1=0.97, pr2=0.97)
+HP_feedwater_heater_stg2.set_attr(Q=15.44e6, pr1=0.97, pr2=0.97)
 
 # ==========================================
 # Connection Attributes
 # ==========================================
 
 # Steam generator
-c1.set_attr(fluid=coolant, T=597.85, p=15.5e6) # Primary in
-c2.set_attr(T=555)
+c1.set_attr(fluid=coolant, T=597.85, p=15.5e6, m0=17000, h0=1.55e6)
+c2.set_attr(T=555, m0=17000, h0=1.42e6)
 
-# Cold Side
-c3.set_attr(fluid=working_fluid, m=1886.91, T=543.9, p=5.57e6)
+# Main steam: specify h, not T. T=543.9 K is 0.025 K below Tsat at 5.57 MPa,
+# so CoolProp returns subcooled liquid (~1.19 MJ/kg) instead of steam (~2.79 MJ/kg).
+c3.set_attr(fluid=working_fluid, m=1886.91, h=2785618, p=5.57e6)
+c4.set_attr(m0=63, h0=2.785e6)
+c5.set_attr(m0=1824, h0=2.7856e6)
 
-# HP turbines outlets to splitters
-c6.set_attr(p=3.41e6)
-c8.set_attr(p=2.83e6)
-c9.set_attr(p0=2.83e6,h0=2.686e6,m0=89.91)#
-c9_1.set_attr(m0=89.90)
-c10.set_attr(p=1.79e6)
-c11.set_attr(h0=2.61e6,m0=1453.53,p0=1.133e6)#
-c12.set_attr(p=113e4)
-c14.set_attr(m0=125.1,h0=2.5400e6)
-c14_1.set_attr(m0=125, h0=2.5e6)
+# HP turbines outlets to splitters (series expansion)
+c6.set_attr(p=3.41e6, m0=1824, h0=2.706e6)
+c7.set_attr(m0=1739, h0=2.706e6)
+c7_1.set_attr(m0=85, h0=2.706e6, p0=3.41e6)
+c8.set_attr(p=2.83e6, m0=1739, h0=2.677e6)
+c9.set_attr(m0=1649, h0=2.677e6, p0=2.83e6)
+c9_1.set_attr(m0=90, h0=2.677e6)
+c10.set_attr(p=1.79e6, m0=1649, h0=2.607e6)
+c11.set_attr(m0=1577, h0=2.607e6, p0=1.79e6)
+c11_1.set_attr(m0=72, h0=2.607e6)
+c12.set_attr(p=1.1307e6, m0=1577, h0=2.541e6)
+c13.set_attr(m0=1452, p0=1.1307e6, h0=2.541e6)
+c14.set_attr(m0=114, p0=1.1307e6, h0=2.541e6)
+c14_1_in.set_attr(m=0.51, p0=1.1307e6, h0=2.541e6)
+c14_1.set_attr(m0=0.51, p0=4.292e5, h0=2.541e6)
 
 # MSH and Interstage
-c18.set_attr(x=0.05)  # MUST be 'x' (hard constraint), not 'x0'
-c20.set_attr(x=0)     # Drain from interstage heater 2 must be liquid
+c15.set_attr(m0=1282, p0=1.1307e6, h0=2.78e6)
+c16_in.set_attr(m0=170, p0=1.1307e6, h0=786458)
+c16_out.set_attr(m0=170, p0=1.13e6, h0=786458)
+c17.set_attr(m0=1282, p0=1.097e6, h0=2.85e6)
+c18_in.set_attr(x=0.05, p0=3.414e6, m0=85)
+c18.set_attr(m0=85, h0=1.0e6)
+c19.set_attr(m0=1282, p0=1.1004e6, h0=2.9497e6)
+c20_in.set_attr(x=0, p0=5.4e6, m0=63)
+c20.set_attr(m0=63, h0=1.0e6)
+c21.set_attr(m0=248, p0=1.03e6, h0=1.74e6)
 
-# LP Turbines
-# We must lock one of the parallel bleeds to LP FWH 4 to avoid a singularity
-c23.set_attr()#
-c24.set_attr(p0=427000, m=43.07)  # Changed from m0 to m to lock the split
-c25.set_attr(p0=3.41e6)#
-c26.set_attr(p0=2.83e6)#
-c27.set_attr(p0=256000, m0=74.8)
-c28.set_attr(p0=86598.2,x0=0.90)#
-c29.set_attr()#
-c30.set_attr(p0=89600, x0=0.105, m0=42.82)
-c31.set_attr(p0=40500)
-c32.set_attr()#
-c33.set_attr(m0=82.6)#
+# LP Turbines — lock extraction mass flows; guesses must be LP pressures, not HP.
+c22.set_attr(h0=2.775e6, p0=4.292e5)
+c23.set_attr(p0=4.292e5, h0=2.775e6)
+c24.set_attr(m0=43.07)
+c25.set_attr(h0=2.690e6, p0=2.575e5, m0=1239)
+c26.set_attr(p0=2.575e5, h0=2.690e6)
+c27.set_attr(m0=74.75)
+c28.set_attr(h0=2.529e6, p0=8.755e4)
+c29.set_attr(p0=8.755e4, h0=2.529e6)
+c30.set_attr(m0=41.68)
+c31.set_attr(p0=4.5e4, h0=2.425e6)
+c32.set_attr(p0=4.5e4, h0=2.425e6)
+c33.set_attr(m0=54.68)
 
 # Condenser
-c34.set_attr(p=40500)
-c35.set_attr(fluid=cooling_fluid, p=0.1e6, T=288.15)
+c34.set_attr(p=40500, m0=1068, h0=2.35e6)
+c35.set_attr(fluid=cooling_fluid, p=0.1e6, T=288.15, m0=40000)
 c36.set_attr(T=300.15)
-c42.set_attr(m0=125, h0=6.0e5)
-# LP feedwater heater DRAINS (Hot side outlets must be saturated liquid)
+c37.set_attr(m0=1453, h0=2.0e6)
+c38.set_attr(m0=1453, h0=318878)
+c39.set_attr(m0=385, h0=858218)
+c40_in.set_attr(x=0, m0=385, h0=4.2e5)
+c40.set_attr(m0=385, h0=4.2e5)
+c41.set_attr(m0=330, h0=1.01e6)
+c42.set_attr(m0=255, h0=7.13e5)
+c43.set_attr(m0=44, h0=5.56e5)
+c44.set_attr(m0=1453, h0=4.64e5)
+c45.set_attr(m0=1453, h0=5.57e5)
+c46.set_attr(m0=1453, h0=5.91e5)
+c47.set_attr(m0=1453, h0=6.47e5)
+c49_in.set_attr(x=0, m0=255)
+c49.set_attr(m0=255, h0=5.5e5)
+c50_in.set_attr(x=0, m0=330)
+c50.set_attr(m0=330, h0=4.5e5)
+c51.set_attr(m0=1453, h0=7.14e5)
+c52_in.set_attr(x=0, m0=44, h0=5.56e5)
+c52.set_attr(m0=44, h0=5.0e5)
 
-c50.set_attr(x=0)
-c49.set_attr(x=0)
-c52.set_attr(x=0, m0=42.8, h0=5.7e5)
-
-# HP Feedwater heater DRAINS (Hot side outlets must be saturated liquid)
-c53.set_attr(x=0,m0=305.90,h0=812e3)
-c54.set_attr(x=0,m0=1886.91,h0=781100) #Deaerator outlet
-c55.set_attr(m0=1886.91, h0=790e3)
-c56.set_attr(m0=1886.91, h0=1.05e6)
-c57.set_attr(m0=305.9, h0=1.05e6)
-c58.set_attr(T=499.8,m0=305.90,h0=2187395.66)# 1858541 +569189 = mass going into HP FWH Hot side inlet
-
-
-
-# NO constraints on c55, c13, c14, c11_1, c45, or c51. Let TESPy calculate them!
-
-
-#Power buss connections
-e_gen_in.set_attr(E0=1270e6)
-e_gen_out.set_attr(E0=1250e6)
-e_hpfw_in.set_attr(E0=20e6)
-e_lpfw_in.set_attr(E0=5e6)
-e_grid.set_attr(E0=1200e6)
-turbine_power_conns[5].set_attr(E0=180e6)  # HP_turbine_stg_1 is index 5 in your `turbines` list
+# HP heaters / deaerator
+c53_in.set_attr(x=0, m0=320, h0=9.03e5)
+c53.set_attr(m0=320, h0=9.03e5)
+c54.set_attr(x=0, m0=1887, h0=8.56e5)
+c55.set_attr(m0=1887, h0=8.58e5)
+c56.set_attr(m0=1887, h0=7.17e5)
+c57_in.set_attr(x=0, m0=320, h0=1.04e6)
+c57.set_attr(m0=320, h0=1.04e6)
+c58.set_attr(m0=320, h0=1.04e6)
+c_fw1.set_attr(m0=1887, h0=7.25e5)
+c_fw2.set_attr(m0=1887, h0=7.25e5)
 
 AP1000_plant.add_conns(
     # Primary / Steam Generator
@@ -529,7 +510,7 @@ AP1000_plant.add_conns(
     c10, c11, c11_1, c12,
 
     # Interstage
-    c13, c14,c14_1, c15, c16_in, c16_out, c17, c18, c19, c20, c21,
+    c13, c14, c14_1_in, c14_1, c15, c16_in, c16_out, c17, c18_in, c18, c19, c20_in, c20, c21,
 
     # LP Turbine
     c22, c23, c24, c25, c26, c27,
@@ -539,42 +520,33 @@ AP1000_plant.add_conns(
     c34, c35, c36, c37, c38,
 
     # LP Heaters
-    c39, c40, c41, c42, c43,
-    c44, c45, c46, c47, c49, c50,
+    c39, c40_in, c40, c41, c42, c43,
+    c44, c45, c46, c47, c49_in, c49, c50_in, c50,
 
     # Deaerator
-    c51, c52, c53,
+    c51, c52_in, c52, c53_in, c53,
 
     # HP Heaters
-    c54, c55, c56, c57,c58
+    c54, c55, c56, c57_in, c57, c58
 )
-
-AP1000_plant.add_conns(
-    *turbine_power_conns,
-    e_gen_in,
-    e_gen_out,
-    e_lpfw_in,
-    e_lpfw_out,
-    e_hpfw_in,
-    e_hpfw_out,
-    e_grid,
-)
-
-
-
 
 try:
 
-    result = AP1000_plant.solve(mode="design",block_solve=False)
-    print(f"Conerged: {"True" if AP1000_plant.status == 0 else "False"}")
-    print("\n" * 5)
-    AP1000_plant.print_structural_analysis()
-    print("\n" * 5)
-    AP1000_plant.print_variables()
-    print("\n" * 5)
-    AP1000_plant.print_incidence_matrix()
-    print("\n" * 5)
-    AP1000_plant.print_equations_with_dependents()
+    result = AP1000_plant.solve(
+        mode="design",
+        block_solve=True,
+        robust_relax=True,
+        oscillation_damping=True,
+        max_iter=300,
+    )
+    print(f"Converged: {'True' if AP1000_plant.status == 0 else 'False'}")
+    turbines = [
+        HP_turbine_stg_1, HP_turbine_stg_2, HP_turbine_stg_3, HP_turbine_stg_4,
+        LP_turbine_stg_1, LP_turbine_stg_2, LP_turbine_stg_3, LP_turbine_stg_4,
+        LP_turbine_stg_5,
+    ]
+    print(f"Gross turbine power: {sum(t.P.val for t in turbines)/1e6:.2f} MW")
+    print(f"Pump work: {(LP_feedwater_pump.P.val + HP_feedwater_pump.P.val)/1e6:.2f} MW")
 
 
 
