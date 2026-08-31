@@ -10,6 +10,10 @@ from MultistageTurbine import MultiStageExtractionTurbine
 
 from tespy.connections import Connection
 
+import matplotlib.pyplot as plt
+import numpy as np
+from fluprodia import FluidPropertyDiagram
+
 AP1000_plant = Network()
 AP1000_plant.units.set_defaults(
     temperature="K",
@@ -28,7 +32,14 @@ cwso = Source("cooling water source")
 cwsi = Sink("cooling water sink")
 
 cc = CycleCloser("cycle closer")
-steam_generator = SimpleHeatExchanger("steam generator")
+
+# Two steam generators, as built: the feedwater splits between them and the two
+# main steam headers recombine ahead of the turbine stop valves.
+steam_generator_1 = SimpleHeatExchanger("steam generator 1")
+steam_generator_2 = SimpleHeatExchanger("steam generator 2")
+feedwater_split = Splitter("feedwater splitter", num_out=2)
+main_steam_merge = Merge("main steam merge", num_in=2)
+
 condenser = Condenser("main condenser")
 condenser_merge = Merge("condenser merge", num_in=2)
 HP_turbine = MultiStageExtractionTurbine("HP turbine", num_stages=4)
@@ -177,11 +188,16 @@ c14 = Connection(HP_FWH_M, "out1", HP_FWH_1, "in1")
 c15 = Connection(HP_FWH_1, "out1", HP_FWH_valve_1, "in1")
 
 c16 = Connection(HP_FWH_2, "out2", RH_FWH, "in2")
-c38 = Connection(RH_FWH, "out2", steam_generator, "in1")
+c38 = Connection(RH_FWH, "out2", feedwater_split, "in1")
 
 c17 = Connection(HP_FWH_2, "out1", HP_FWH_valve_2, "in1")
 
-c0 = Connection(steam_generator, "out1", cc, "in1")
+c39 = Connection(feedwater_split, "out1", steam_generator_1, "in1")
+c72 = Connection(feedwater_split, "out2", steam_generator_2, "in1")
+c73 = Connection(steam_generator_1, "out1", main_steam_merge, "in1")
+c74 = Connection(steam_generator_2, "out1", main_steam_merge, "in2")
+
+c0 = Connection(main_steam_merge, "out1", cc, "in1")
 
 # Condenser cooling connections
 c1_1 = Connection(cwso, "out1", condenser, "in2", label="11")
@@ -189,14 +205,20 @@ c1_2 = Connection(condenser, "out2", cwsi, "in1", label="12")
 
 condenser.set_attr(pr1=1, pr2=0.98)
 
-# Main steam flow is now the DCD heat balance value (14,476,945 lb/hr), so the
-# steam generator duty is a result rather than an input: Q = m*(h_c1 - h_c38).
-steam_generator.set_attr(pr=0.97)
+# Each steam generator carries its DCD rating of 1707 MWt, so the total NSSS heat
+# input is 3414 MWt and the main steam flow follows from the two duties. Only one
+# of the two shells may carry a pressure spec: both outlets are pinned to the main
+# steam header pressure by the merge, so a second pr equation would be redundant
+# with it and leave the Jacobian singular.
+steam_generator_1.set_attr(pr=0.97, Q=1707e6)
+steam_generator_2.set_attr(Q=1707e6)
 
-HP_turbine.set_attr(eta_s1=0.86, eta_s2=0.86, eta_s3=0.86, eta_s4=0.86)
-LP_turbine_stg1.set_attr(eta_s1=0.93, eta_s2=0.93)
-LP_turbine_stg2.set_attr(eta_s=0.93)
-LP_turbine_stg3.set_attr(eta_s=0.93)
+# Isentropic efficiencies are the DCD-consistent values that land the shaft output
+# at 1200 MW: the wet LP stages run well below dry-expansion efficiency.
+HP_turbine.set_attr(eta_s1=0.84, eta_s2=0.84, eta_s3=0.84, eta_s4=0.84)
+LP_turbine_stg1.set_attr(eta_s1=0.873, eta_s2=0.873)
+LP_turbine_stg2.set_attr(eta_s=0.873)
+LP_turbine_stg3.set_attr(eta_s=0.873)
 
 # Interstage heaters. Each shell condenses to x=0 (set on c31/c33) and each cold
 # outlet temperature is fixed (c2d, c2b), so the bleed mass flows follow from the
@@ -259,96 +281,106 @@ HP_pump.set_attr(eta_s=0.804)
 c1_1.set_attr(T=288.15, p=1.2e5, fluid=cooling_fluid)
 c1_2.set_attr(T=300.15)
 
-# Main steam, DCD Fig 10.1-1: 808 psia / 1197.6 BTU/lb / 14,476,945 lb/hr.
-c1.set_attr(p=5.571e6, h=2785.6e3, m=1824.1, fluid=working_fluid)
-c1a.set_attr(m0=1759, h0=2.786e6)  # main steam -> HP turbine
-c1b.set_attr(m0=65, h0=2.786e6)  # main steam bleed -> interstage heater 1
+# Main steam, DCD Fig 10.1-1: 808 psia / 1197.6 BTU/lb. The flow follows from the
+# two steam generator duties, so only a start value is given here.
+c1.set_attr(p=5.571e6, h=2785.6e3, m0=1891, fluid=working_fluid)
+c1a.set_attr(m0=1824, h0=2.786e6)  # main steam -> HP turbine
+c1b.set_attr(m0=66, h0=2.786e6)  # main steam bleed -> interstage heater 1
 
 # HP turbine outlets: pressures fall along the stage order out1 -> ... -> out4.
 # Extraction masses are results of each heater's ttd_u. c13 sits at 2.0 MPa so
 # that Tsat = 485.5 K supports the DCD's 478 K feedwater point ahead of the
 # final heater, and c3 at 2.83 MPa (Tsat = 503.6 K) the 500.9 K SG inlet.
-c2.set_attr(p=1.133e6, m0=1342, h0=2.52e6)  # HP exhaust -> moisture separator
-c2a.set_attr(m0=1180, h0=2.781e6)  # separated vapour -> interstage heater 2
-c2d.set_attr(T=490, m0=1180, h0=2.858e6)  # first reheat stage outlet
-c2b.set_attr(T=527.7, m0=1180, h0=2.947e6)  # reheated steam -> LP turbine
-c2c.set_attr(m0=162, h0=7.85e5)  # separator drain -> MSR drain FWH
-c30.set_attr(p=4.0e6, m0=55, h0=2.691e6)  # stage-1 bleed -> interstage heater 2
-c3.set_attr(p=2.83e6, m0=84, h0=2.644e6)  # stage-2 extraction -> HP FWH 2
-c13.set_attr(p=2.0e6, m0=279, h0=2.592e6)  # stage-3 extraction -> HP FWH merge
+c2.set_attr(p=1.133e6, m0=1388, h0=2.55e6)  # HP exhaust -> moisture separator
+c2a.set_attr(m0=1216, h0=2.782e6)  # separated vapour -> interstage heater 2
+c2d.set_attr(T=490, m0=1216, h0=2.863e6)  # first reheat stage outlet
+c2b.set_attr(T=527.7, m0=1216, h0=2.950e6)  # reheated steam -> LP turbine
+c2c.set_attr(m0=172, h0=7.87e5)  # separator drain -> MSR drain FWH
+c30.set_attr(p=4.0e6, m0=60, h0=2.740e6)  # stage-1 bleed -> interstage heater 2
+c3.set_attr(p=2.83e6, m0=92, h0=2.690e6)  # stage-2 extraction -> HP FWH 2
+c13.set_attr(p=2.0e6, m0=284, h0=2.640e6)  # stage-3 extraction -> HP FWH merge
 
 # Interstage heater drains. x=0 on both shells sets the bleed flows; heater 1's
 # drain is then throttled to heater 2's shell-outlet pressure, which is what the
 # merge pins the two branches to.
-c31.set_attr(x=0, m0=65, h0=1.177e6)
-c32.set_attr(m0=65, h0=1.177e6)
-c33.set_attr(x=0, m0=55, h0=1.079e6)
-c34.set_attr(m0=120, h0=1.13e6)
-c35.set_attr(m0=120, h0=9.93e5)
-c36.set_attr(m0=120, h0=9.93e5)
-c37.set_attr(m0=204, h0=1.673e6)
+c31.set_attr(x=0, m0=66, h0=1.179e6)
+c32.set_attr(m0=66, h0=1.179e6)
+c33.set_attr(x=0, m0=60, h0=1.079e6)
+c34.set_attr(m0=126, h0=1.132e6)
+c35.set_attr(m0=126, h0=9.93e5)
+c36.set_attr(m0=126, h0=9.93e5)
+c37.set_attr(m0=218, h0=1.706e6)
 
 # LP bleed pressures, DCD LP extraction stages. Spreading them 0.289 / 0.086 /
 # 0.0405 MPa puts Tsat at 405 / 369 / 349 K against condensate entering at
 # 312 K, which is the ladder the DCD feedwater temperatures imply.
-c40.set_attr(p=0.289e6, m0=99, h0=2.700e6)  # LP bleed 1 -> LP FWH 2
-c41.set_attr(p=0.086e6, m0=1078, h0=2.512e6)  # LP stage 1 exhaust
-c42.set_attr(m0=15, h0=2.512e6)  # LP bleed 2 -> LP FWH 3
-c43.set_attr(m0=1063, h0=2.512e6)
-c44.set_attr(p=0.0405e6, m0=1063, h0=2.406e6)  # LP stage 2 exhaust
-c45.set_attr(m0=87, h0=2.406e6)  # LP bleed 3 -> LP FWH 4
-c46.set_attr(m0=976, h0=2.406e6)
+c40.set_attr(p=0.289e6, m0=104, h0=2.710e6)  # LP bleed 1 -> LP FWH 2
+c41.set_attr(p=0.086e6, m0=1112, h0=2.535e6)  # LP stage 1 exhaust
+c42.set_attr(m0=16, h0=2.535e6)  # LP bleed 2 -> LP FWH 3
+c43.set_attr(m0=1096, h0=2.535e6)
+c44.set_attr(p=0.0405e6, m0=1096, h0=2.435e6)  # LP stage 2 exhaust
+c45.set_attr(m0=90, h0=2.435e6)  # LP bleed 3 -> LP FWH 4
+c46.set_attr(m0=1006, h0=2.435e6)
 
 # Condenser backpressure. The DCD's 5.66 psia is the last LP extraction, not
 # condenser vacuum; the hotwell sits at 7 kPa, which is the 118.7 F / 86.7
 # BTU/lb condensate point on the heat balance.
-c5.set_attr(p=7000, m0=976, h0=2.190e6)  # LP turbine exhaust
+c5.set_attr(p=7000, m0=1006, h0=2.230e6)  # LP turbine exhaust
 
-c8.set_attr(p=1.2e6, m0=1824, h0=1.65e5)
+c8.set_attr(p=1.2e6, m0=1891, h0=1.65e5)
 
-c60.set_attr(m0=1824, h0=2.985e5)
-c61.set_attr(m0=1824, h0=3.803e5)
-c62.set_attr(m0=1824, h0=5.331e5)
-c9.set_attr(m0=1824, h0=5.972e5)
-c9a.set_attr(m0=1824, h0=6.122e5)
+c60.set_attr(m0=1891, h0=2.988e5)
+c61.set_attr(m0=1891, h0=3.797e5)
+c62.set_attr(m0=1891, h0=5.352e5)
+c9.set_attr(m0=1891, h0=5.979e5)
+c9a.set_attr(m0=1891, h0=6.132e5)
 
-c10.set_attr(m0=1824, h0=6.191e5)
-c11.set_attr(m0=1824, h0=8.860e5)
-c16.set_attr(m0=1824, h0=9.626e5)
-c38.set_attr(m0=1824, h0=9.715e5)
+c10.set_attr(m0=1891, h0=6.203e5)
+c11.set_attr(m0=1891, h0=8.873e5)
+c16.set_attr(m0=1891, h0=9.706e5)
+c38.set_attr(m0=1891, h0=9.798e5)
 
-c14.set_attr(m0=483, h0=1.913e6)
-c15.set_attr(x=0, m0=483, h0=9.059e5)  # HP FWH 1 drain leaves as saturated liquid
-c17.set_attr(x=0, m0=204, h0=9.850e5)  # HP FWH 2 drain leaves as saturated liquid
+# Even split between the two steam generators: fixing the enthalpy leaving shell 1
+# at the main steam value forces the merge to hand shell 2 the same outlet state,
+# so the two duties are carried by equal mass flows.
+c39.set_attr(m0=945, h0=9.798e5)
+c72.set_attr(m0=945, h0=9.798e5)
+c73.set_attr(h=2785.6e3, m0=945)
+c74.set_attr(m0=945, h0=2.786e6)
+
+c14.set_attr(m0=502, h0=1.908e6)
+c15.set_attr(x=0, m0=502, h0=9.015e5)  # HP FWH 1 drain leaves as saturated liquid
+c17.set_attr(x=0, m0=218, h0=9.854e5)  # HP FWH 2 drain leaves as saturated liquid
 
 # LP FWH 1 shell pressure. Tsat(0.6 MPa) = 432 K against feedwater at 400 K, so
 # the throttled HP FWH 1 drain arrives wet (x ~ 0.11) and condenses out.
-c18.set_attr(p=0.60e6, m0=483, h0=9.059e5)
-c19.set_attr(x=0, m0=483, h0=6.660e5)
-c20.set_attr(m0=483, h0=6.660e5)
+c18.set_attr(p=0.60e6, m0=502, h0=9.015e5)
+c19.set_attr(x=0, m0=502, h0=6.652e5)
+c20.set_attr(m0=502, h0=6.652e5)
 
-c63.set_attr(m0=748, h0=9.257e5)
-c64.set_attr(x=0, m0=748, h0=5.530e5)
-c65.set_attr(m0=748, h0=5.530e5)
+c63.set_attr(m0=778, h0=9.293e5)
+c64.set_attr(x=0, m0=778, h0=5.516e5)
+c65.set_attr(m0=778, h0=5.516e5)
 
-c66.set_attr(m0=763, h0=5.913e5)
-c67.set_attr(x=0, m0=763, h0=3.965e5)
-c68.set_attr(m0=763, h0=3.965e5)
+c66.set_attr(m0=794, h0=5.891e5)
+c67.set_attr(x=0, m0=794, h0=3.965e5)
+c68.set_attr(m0=794, h0=3.965e5)
 
-c69.set_attr(m0=850, h0=6.033e5)
-c70.set_attr(x=0, m0=850, h0=3.159e5)
-c71.set_attr(m0=850, h0=3.159e5)
+c69.set_attr(m0=884, h0=6.023e5)
+c70.set_attr(x=0, m0=884, h0=3.158e5)
+c71.set_attr(m0=884, h0=3.158e5)
 
-c21.set_attr(m0=162, h0=6.155e5)
-c22.set_attr(m0=162, h0=6.155e5)
+c21.set_attr(m0=172, h0=6.194e5)
+c22.set_attr(m0=172, h0=6.194e5)
 
 AP1000_plant.add_conns(
     c1, c1a, c1b, c2, c2a, c2b, c2c, c2d, c3, c5,
     c6, c7, c8, c9, c9a, c10, c11, c12, c13, c14, c15,
     c16, c17, c18, c19, c20, c21, c22, c0, c1_1, c1_2,
-    c30, c31, c32, c33, c34, c35, c36, c37, c38,
+    c30, c31, c32, c33, c34, c35, c36, c37, c38, c39,
     c40, c41, c42, c43, c44, c45, c46,
-    c60, c61, c62, c63, c64, c65, c66, c67, c68, c69, c70, c71
+    c60, c61, c62, c63, c64, c65, c66, c67, c68, c69, c70, c71,
+    c72, c73, c74
 )
 
 try:
@@ -377,18 +409,77 @@ try:
         )
         pump_power = condensate_pump.P.val_SI + HP_pump.P.val_SI
         net_power = -(turbine_power + pump_power)
-
-        print(f"steam generator duty : {steam_generator.Q.val_SI / 1e6:.1f} MW")
+        heat_input = (
+            steam_generator_1.Q.val_SI + steam_generator_2.Q.val_SI
+        )
+        print(f"main steam flow      : {c1.m.val_SI:.1f} kg/s")
+        print(f"SG 1 duty            : {steam_generator_1.Q.val_SI / 1e6:.1f} MW")
+        print(f"SG 2 duty            : {steam_generator_2.Q.val_SI / 1e6:.1f} MW")
+        print(f"total heat input     : {heat_input / 1e6:.1f} MW")
         print(f"gross turbine power  : {-turbine_power / 1e6:.1f} MW")
         print(f"pump power           : {pump_power / 1e6:.1f} MW")
         print(f"net power            : {net_power / 1e6:.1f} MW")
-        print(
-            "cycle efficiency     : "
-            f"{100 * net_power / steam_generator.Q.val_SI:.2f} %"
-        )
+        print(f"cycle efficiency     : {100 * net_power / heat_input:.2f} %")
+
+        # Initial Setup
+        diagram = FluidPropertyDiagram('water')
+        diagram.set_unit_system(units=AP1000_plant.units)
+
+        # Storing the model result in the dictionary
+        result_dict = {}
+        result_dict.update(
+            {cp.label: cp.get_plotting_data()[1] for cp in AP1000_plant.comps['object']
+             if cp.get_plotting_data() is not None})
+
+        # Iterate over the results obtained from TESPy simulation
+        for key, data in result_dict.items():
+            # Calculate individual isolines for T-s diagram
+            result_dict[key]['datapoints'] = diagram.calc_individual_isoline(**data)
+
+        # Create a figure and axis for plotting T-s diagram
+        fig, ax = plt.subplots(1, figsize=(20, 10))
+        isolines = {
+            'Q': np.linspace(0, 1, 2),
+            'p': np.array([1, 2, 5, 10, 20, 50, 100, 300]),
+            'vol': np.array([]),
+            'h': np.arange(500, 3501, 500)
+        }
+
+        # Set isolines for T-s diagram
+        diagram.set_isolines(**isolines)
+        diagram.calc_isolines()
+
+        # Draw isolines on the T-s diagram
+        diagram.draw_isolines(fig, ax, 'Ts', x_min=0, x_max=7500, y_min=0, y_max=650)
+
+        # Adjust the font size of the isoline labels
+        for text in ax.texts:
+            text.set_fontsize(10)
+
+        # Plot T-s curves for each component
+        for key in result_dict.keys():
+            datapoints = result_dict[key]['datapoints']
+            _ = ax.plot(datapoints['s'], datapoints['T'], color='#ff0000', linewidth=2)
+            _ = ax.scatter(datapoints['s'][0], datapoints['T'][0], color='#ff0000')
+
+        # Set labels and title for the T-s diagram
+        ax.set_xlabel('Entropy, s in J/kgK', fontsize=16)
+        ax.set_ylabel('Temperature, T in °C', fontsize=16)
+        ax.set_title('T-s Diagram of Rankine Cycle', fontsize=20)
+
+        # Set font size for the x-axis and y-axis ticks
+        ax.tick_params(axis='x', labelsize=12)
+        ax.tick_params(axis='y', labelsize=12)
+        plt.tight_layout()
+
+        # Save the T-s diagram plot as an SVG file
+        fig.savefig('AP1000_ts_diagram.svg')
+
 
 except Exception as e:
     print(f"Error: {e}")
     AP1000_plant.print_variables()
     AP1000_plant.print_structural_analysis()
     AP1000_plant.print_incidence_matrix()
+
+

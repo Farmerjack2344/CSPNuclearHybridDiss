@@ -7,12 +7,15 @@ from tespy.components import (SimpleHeatExchanger, Splitter, Merge, CycleCloser,
                                Source, Sink, Pump, SteamTurbine, Condenser)
 from tespy.connections import Connection
 
-from MoltenSalt import MoltenSalt
 from MoltenSaltTank import MoltenSaltTank, dispatch
+from MoltenSalt import MoltenSalt
+
+rankine_cycle_fluid = {"water": 1}
+oil_fluid = {"INCOMP::TVP1": 1}
 
 
 # ---------------------------------------------------------------------------
-# Solar field helper functions (unchanged from your version)
+# Solar field helper functions: to calculate thermal loss
 # ---------------------------------------------------------------------------
 def cos_theta(day_of_year, solar_hour):
     delta = np.radians(23.45 * np.sin(np.radians(360 * (284 + day_of_year) / 365)))
@@ -34,7 +37,11 @@ def q_thermal_loss(T_htf, T_amb, receiver_length_total=(148.5 * 624), a0=0, a1=0
     return q_per_metre * receiver_length_total  # W, total field
 
 
-def meteorolgoicl_values():
+def meteorolgoical_values():
+    """
+    Gets the DNI and stuff from the csv file
+    :return:
+    """
     df = pd.read_csv("Timeseries_37.320.csv", skiprows=8)
     df["datetime"] = pd.to_datetime(df["time"], format="%Y%m%d:%H%M", errors="coerce")
     df = df.dropna(subset=["datetime"]).copy()
@@ -54,6 +61,19 @@ def meteorolgoicl_values():
 
 def Q_solar_field(hour_num, DNI, T_amb_K, collector_area, optical_efficiency,
                    T_htf_in, mdot_htf, htf, day_of_year=202):
+    """
+
+    :param hour_num: Hour after midnight
+    :param DNI: Direct Normal Irraidiance
+    :param T_amb_K: AMbient temperature in Kelvin
+    :param collector_area: Area of the colelctor
+    :param optical_efficiency:
+    :param T_htf_in:
+    :param mdot_htf:
+    :param htf:
+    :param day_of_year:
+    :return:
+    """
     Q_ideal = collector_area * DNI * optical_efficiency
     Q_real = Q_ideal
     cos = cos_theta(day_of_year, hour_num)
@@ -63,7 +83,7 @@ def Q_solar_field(hour_num, DNI, T_amb_K, collector_area, optical_efficiency,
 
     theta_deg = math.degrees(math.acos(min(cos, 1.0)))
 
-    for _ in range(2):
+    for i in range(2):
         delta_T = Q_real / (mdot_htf * htf.cp(T_htf_in)) if Q_real > 0 else 0.0
         T_htf_out = T_htf_in + delta_T
         Q_loss = q_thermal_loss(T_htf=T_htf_out, T_amb=T_amb_K)
@@ -143,6 +163,7 @@ SteamCycle.add_conns(s1, s2, s3, s4, s5, s6, s7)
 # turbine and pump; pr= on steam_side_sg and condenser; cooling water fluid
 # + mass flow on s6.
 
+
 print("NOTE: component parameters (pr, eta_s, fluids) are not yet specified "
       "on either network -- neither will solve until those are added. "
       "See TODOs above.")
@@ -153,11 +174,10 @@ print("NOTE: component parameters (pr, eta_s, fluids) are not yet specified "
 # ---------------------------------------------------------------------------
 htf = MoltenSalt()
 
-# TODO: confirm T_hot/T_cold/total_salt_mass against Andasol-1 literature
-# for examiner traceability -- placeholders below are order-of-magnitude only.
-T_cold_salt = 565.0   # K
-T_hot_salt = 657.0    # K
-total_salt_mass = 28_500_000.0  # kg
+
+T_cold_salt = 565.15   # K
+T_hot_salt = 659.15    # K
+total_salt_mass = 28_500e3  # kg
 salt_cp_avg = htf.cp((T_hot_salt + T_cold_salt) / 2)
 
 tank = MoltenSaltTank(
@@ -168,9 +188,8 @@ tank = MoltenSaltTank(
     initial_hot_mass=0.0,  # cold start; set >0 to warm-start SoC
 )
 
-# TODO: set from the steam cycle's design thermal input once eta_s / pr
-# specs above give you a validated turbine design point.
-Q_design_thermal = None
+
+Q_design_thermal = 50e6
 if Q_design_thermal is None:
     raise ValueError(
         "Q_design_thermal is not set. Define the power block's design "
@@ -181,12 +200,12 @@ if Q_design_thermal is None:
 # ---------------------------------------------------------------------------
 # Field parameters
 # ---------------------------------------------------------------------------
-collector_area = 500_000       # m^2
+collector_area = 0.5e6       # m^2
 optical_efficiency = 0.75
 T_htf_in = 273.15 + 285        # K
 mdot_htf = 100                 # kg/s
 
-DNI_values = meteorolgoicl_values()
+DNI_values = meteorolgoical_values()
 dt = 3600  # s, hourly PVGIS data
 
 log = []
