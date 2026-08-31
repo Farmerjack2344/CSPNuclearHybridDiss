@@ -4,13 +4,14 @@ import numpy as np
 
 from tespy.networks import Network
 from tespy.components import (SimpleHeatExchanger, Splitter, Merge, CycleCloser,
-                               Source, Sink, Pump, SteamTurbine, Condenser)
+                              Source, Sink, Pump, SteamTurbine, Condenser, HeatExchanger)
 from tespy.connections import Connection
 
 from MoltenSaltTank import MoltenSaltTank, dispatch
 from MoltenSalt import MoltenSalt
 
 rankine_cycle_fluid = {"water": 1}
+cooling_fluid = {"water": 1}
 oil_fluid = {"INCOMP::TVP1": 1}
 
 
@@ -143,26 +144,39 @@ SteamCycle.units.set_defaults(
 
 cycle_closer_steam = CycleCloser("Steam Cycle Closer")
 steam_side_sg = SimpleHeatExchanger("Steam Generator (steam side)")
-turbine = SteamTurbine("Power block Turbine")
+HP_turbine = SteamTurbine("Power block Turbine")
+steam_side_reheater = SimpleHeatExchanger("Reheater")
+LP_turbine = SteamTurbine("LP Turbine")
 condenser = Condenser("Condenser")
 pump = Pump("Power block Pump")
 cooling_water_in = Source("Cooling water in")
 cooling_water_out = Sink("Cooling water out")
 
 s1 = Connection(cycle_closer_steam, "out1", steam_side_sg, "in1", label="s1_closer_to_sg")
-s2 = Connection(steam_side_sg, "out1", turbine, "in1", label="s2_sg_to_turbine")
-s3 = Connection(turbine, "out1", condenser, "in1", label="s3_turbine_to_condenser")
-s4 = Connection(condenser, "out1", pump, "in1", label="s4_condenser_to_pump")
-s5 = Connection(pump, "out1", cycle_closer_steam, "in1", label="s5_pump_to_closer")
-s6 = Connection(cooling_water_in, "out1", condenser, "in2", label="s6_cw_in")
-s7 = Connection(condenser, "out2", cooling_water_out, "in1", label="s7_cw_out")
+s2 = Connection(steam_side_sg, "out1", HP_turbine, "in1", label="s2_sg_to_turbine")
+s3 = Connection(HP_turbine, "out1", steam_side_reheater, "in1", label="s3_sg_to_reheater")
+s4 = Connection(steam_side_reheater, "out1", LP_turbine, "in1", label="s4_sg_to_reheater")
+s5 = Connection(LP_turbine, "out1", condenser, "in1", label="s3_turbine_to_condenser")
+s6 = Connection(condenser, "out1", pump, "in1", label="s4_condenser_to_pump")
+s7 = Connection(pump, "out1", cycle_closer_steam, "in1", label="s5_pump_to_closer")
+s8 = Connection(cooling_water_in, "out1", condenser, "in2", label="s6_cw_in")
+s9 = Connection(condenser, "out2", cooling_water_out, "in1", label="s7_cw_out")
 
-SteamCycle.add_conns(s1, s2, s3, s4, s5, s6, s7)
+SteamCycle.add_conns(s1, s2, s3, s4, s6, s7, s8, s9)
 
-# TODO (steam cycle): fluid "water" + mass flow guess on s1; eta_s= on
-# turbine and pump; pr= on steam_side_sg and condenser; cooling water fluid
-# + mass flow on s6.
 
+HP_turbine.set_attr(eta_s=0.848)#,pr=0.197)
+LP_turbine.set_attr(eta_s=0.916)
+steam_side_reheater.set_attr(Q=21.479e3)
+pump.set_attr(eta_s=0.9)
+
+s2.set_attr(m=60.935, p=105e5, T=654.15)
+s3.set_attr(p=20.72e5)
+
+s4.set_attr(p=18.29e5,T=653.15)
+s5.set_attr(p=0.065e5)
+
+s8.set_attr(fluid=cooling_fluid, m=2502)
 
 print("NOTE: component parameters (pr, eta_s, fluids) are not yet specified "
       "on either network -- neither will solve until those are added. "
@@ -203,7 +217,7 @@ if Q_design_thermal is None:
 collector_area = 0.5e6       # m^2
 optical_efficiency = 0.75
 T_htf_in = 273.15 + 285        # K
-mdot_htf = 100                 # kg/s
+mdot_htf = 618.1              # kg/s
 
 DNI_values = meteorolgoical_values()
 dt = 3600  # s, hourly PVGIS data
@@ -233,8 +247,8 @@ for hour_num, DNI, T_amb in DNI_values:
     # --- Steam cycle side ---
     # Matched duty: exactly what the oil side gave up, the steam side
     # receives. This is the only coupling between the two networks.
-    steam_side_sg.set_attr(Q=step["Q_to_pb"])
-
+    steam_side_sg.set_attr(Q=step["Q_to_pb"] * 0.9)
+    steam_side_reheater.set_attr(Q=step["Q_to_pb"] * 0.1)
     # OilLoop.solve("design")     # TODO: uncomment once oil-loop params are set
     # SteamCycle.solve("design")  # TODO: uncomment once steam-cycle params are set
 
