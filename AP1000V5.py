@@ -37,7 +37,10 @@ LP_turbine_stg1 = Turbine("LP turbine stage 1")
 condensate_pump = Pump("condenser pump")
 
 LP_FWH = HeatExchanger("LP FWH 1")
-LP_FWH_merge = Valve("LP FWH merge")
+# Drops the LP FWH shell drain from the shell pressure down to the condenser.
+# Without this valve the shell outlet sits directly on the condenser merge, which
+# pins the shell to condenser pressure and leaves the heater no temperature head.
+LP_FWH_valve = Valve("LP FWH drain valve")
 
 HP_pump = Pump("feed pump")
 
@@ -80,9 +83,9 @@ c16 = Connection(HP_FWH_2, "out2", steam_generator, "in1")
 
 c17 = Connection(HP_FWH_2, "out1", HP_FWH_valve_2, "in1")
 
-c18 = Connection(HP_FWH_valve_1, "out1", LP_FWH_merge, "in1")
-c19 = Connection(LP_FWH_merge, "out1", LP_FWH, "in1")
-c20 = Connection(LP_FWH, "out1", condenser_merge, "in2")
+c18 = Connection(HP_FWH_valve_1, "out1", LP_FWH, "in1")
+c19 = Connection(LP_FWH, "out1", LP_FWH_valve, "in1")
+c20 = Connection(LP_FWH_valve, "out1", condenser_merge, "in2")
 
 c0 = Connection(steam_generator, "out1", cc, "in1")
 
@@ -92,16 +95,28 @@ c1_2 = Connection(condenser, "out2", cwsi, "in1", label="12")
 
 condenser.set_attr(pr1=1, pr2=0.98)
 
+# 1707 MW is ONE of the AP1000's two steam generators, but the main steam flow
+# below is the whole plant, so the two must not be paired. With the main steam
+# state fixed by the cycle closer, Q and m together dictate the feedwater
+# enthalpy entering the SG (h_c16 = h_c1 - Q/m); pairing 1707 MW with the full
+# flow demanded a feedwater state no feedwater train can deliver.
 steam_generator.set_attr(
-    Q=1707e6,
+    Q=3400e6,
     pr=0.97
 )
 
 HP_turbine.set_attr(eta_s1=0.845, eta_s2=0.845, eta_s3=0.845)
 LP_turbine_stg1.set_attr(eta_s=0.845)
 
+# Every heater here is fed by wet steam, so the shell temperature is fixed by
+# pressure alone (dT/dh = 0). A ttd equation therefore reduces to a constraint on
+# the single feedwater enthalpy it references, so no two heaters may reference the
+# same one: ttd_u on HP FWH 1 (which fixes h_c11) together with ttd_l on HP FWH 2
+# (whose cold inlet is also c11) gives two identical Jacobian rows. Using ttd_u
+# throughout keeps each heater on its own cold outlet, and the drains are pinned
+# with x=0 on c15/c17 instead.
 HP_FWH_2.set_attr(
-    ttd_l=5,
+    ttd_u=5,
     pr1=0.97,
     pr2=0.97,
 )
@@ -121,6 +136,8 @@ LP_FWH.set_attr(
     pr1=0.97,
     pr2=0.97
 )
+# The drain is still wet leaving the shell, so no x= spec belongs on c19 -- the
+# energy balance sets its quality.
 
 HP_pump.set_attr(eta_s=0.804)
 
@@ -128,40 +145,56 @@ HP_pump.set_attr(eta_s=0.804)
 c1_1.set_attr(T=288.15, p=1.2e5, fluid=cooling_fluid)
 c1_2.set_attr(T=300.15)
 
-c1.set_attr(T=600, p=150e5, m=1886.91, fluid=working_fluid)
+# Saturated main steam, matching AP1000V4 (DCD Fig 10.1-1, 1197.6 BTU/lb).
+# T=600 K at 150e5 Pa was SUBCOOLED LIQUID: Tsat(15 MPa) = 615.3 K, so CoolProp
+# resolved it to h = 1.4977 MJ/kg on the liquid branch and the HP turbine was
+# expanding water. Steam flow is now a result of reactor power, not an input.
+c1.set_attr(p=5.57e6, h=2785618, m0=1880, fluid=working_fluid)
 
 # HP turbine outlets: pressures fall along the stage order out1 -> out2 -> out3.
-# Stage-2 extraction mass is a result of ttd_l; stage-1 mass is fixed to keep the problem square.
+# Extraction masses are results of each heater's ttd_u.
+# c13 has to sit at 2.40e6, not 1.79e6: HP FWH 2 can only add ~9 K, so HP FWH 1
+# must deliver feedwater at ~490 K, and its shell needs Tsat above that
+# (Tsat(2.40e6) = 495.0 K). The stages stack tightly only because two HP heaters
+# are spanning a 146 K rise; adding the deaerator and the other stages from V4
+# will spread this out again.
 c2.set_attr(p=113e4)  # HP exhaust -> LP
-c3.set_attr(m=89.9, p=2.83e6)  # stage-1 extraction -> HP FWH 2
-c13.set_attr(m0=71.72, p=1.79e6)  # stage-2 extraction -> HP FWH merge
+c3.set_attr(p=2.83e6, m0=45, h0=2.68e6)  # stage-1 extraction -> HP FWH 2
+c13.set_attr(p=2.40e6, m0=690, h0=2.65e6)  # stage-2 extraction -> HP FWH merge
 
-c8.set_attr(p=0.5e6)
+c8.set_attr(p=1.0e6)
 
 c9.set_attr(
-    m0=1886.91,
-    p0=4.0e4,
-    h0=3.9e5
+    m0=1880,
+    h0=2.93e5
 )
 
 c10.set_attr(
-    m0=1886.91,
-    p0=16.4e6,
-    h0=4.1e5
+    m0=1880,
+    h0=2.99e5
 )
 
 c11.set_attr(
-    m0=1886.91,
-    h0=7.0e5
+    m0=1880,
+    h0=9.26e5
 )
 
-c5.set_attr(p=40500, m0=1725)  # LP turbine outlet
+c16.set_attr(m0=1880, h0=9.77e5)
 
-c14.set_attr(m0=160, h0=1.0e6)
-c15.set_attr(m0=160, h0=8.0e5)
-c17.set_attr(m0=90, h0=1.0e6)
-c18.set_attr(p=0.5e6, m0=160, h0=8.0e5)
-c19.set_attr(p0=0.5e6)
+# Condenser backpressure. 40500 Pa is the DCD's last LP extraction pressure
+# (5.66 psia), not condenser vacuum; at 40.5 kPa the condensate leaves at 349 K,
+# which is what left the LP FWH no temperature head to work with.
+c5.set_attr(p=7000, m0=1140, h0=2.15e6)  # LP turbine outlet
+
+c14.set_attr(m0=735, h0=2.52e6)
+c15.set_attr(x=0, m0=735, h0=9.62e5)  # HP FWH 1 drain leaves as saturated liquid
+c17.set_attr(x=0, m0=45, h0=1.002e6)  # HP FWH 2 drain leaves as saturated liquid
+
+# LP FWH shell pressure. Tsat(0.39e5) = 348.4 K against condensate at 312 K gives
+# ~36 K of head; the drain arrives wet (x ~ 0.27) and leaves wetter (x ~ 0.13).
+c18.set_attr(p=0.39e5, m0=735, h0=9.62e5)
+c19.set_attr(m0=735, h0=6.35e5)
+c20.set_attr(m0=735, h0=6.35e5)
 
 AP1000_plant.add_conns(
     c1, c2, c3, c5,
