@@ -2,7 +2,8 @@ from tespy.networks import Network
 from tespy.components import (
     CycleCloser, Pump, Condenser, Turbine,
     SimpleHeatExchanger, Source, Sink,
-    HeatExchanger, Merge, Splitter, Valve
+    HeatExchanger, Merge, Splitter, Valve,
+    DropletSeparator
 )
 
 from MultistageTurbine import MultiStageExtractionTurbine
@@ -29,14 +30,19 @@ cwsi = Sink("cooling water sink")
 cc = CycleCloser("cycle closer")
 steam_generator = SimpleHeatExchanger("steam generator")
 condenser = Condenser("main condenser")
-condenser_merge = Merge("condenser merge", num_in=2)
+condenser_merge = Merge("condenser merge", num_in=3)
 HP_turbine = MultiStageExtractionTurbine("HP turbine", num_stages=3)
+
+moisture_separator = DropletSeparator("moisture separator")
+reheater = SimpleHeatExchanger("interstage reheater")
 
 LP_turbine_stg1 = Turbine("LP turbine stage 1")
 # LP_turbine_stg2 = MultiStageExtractionTurbine("LP turbine stage 2", num_stages=1)
 condensate_pump = Pump("condenser pump")
 
 LP_FWH = HeatExchanger("LP FWH 1")
+LP_FWH_2 = HeatExchanger("LP FWH 2")
+LP_FWH_2_valve = Valve("LP FWH 2 drain valve")
 # Drops the LP FWH shell drain from the shell pressure down to the condenser.
 # Without this valve the shell outlet sits directly on the condenser merge, which
 # pins the shell to condenser pressure and leaves the heater no temperature head.
@@ -55,7 +61,13 @@ c1 = Connection(cc, "out1", HP_turbine, "in1")
 
 # MultiStageExtractionTurbine: out1 is after stage 1 (highest outlet P),
 # outN is the exhaust (lowest P). Stage i+1 uses out{i}'s (p, h) as its inlet.
-c2 = Connection(HP_turbine, "out3", LP_turbine_stg1, "in1")
+c2 = Connection(HP_turbine, "out3", moisture_separator, "in1")
+
+# DropletSeparator: out1 is the saturated liquid drain, out2 the saturated vapour
+# that goes on to the interstage reheater and the LP turbine.
+c2a = Connection(moisture_separator, "out2", reheater, "in1")
+c2b = Connection(reheater, "out1", LP_turbine_stg1, "in1")
+c2c = Connection(moisture_separator, "out1", LP_FWH_2, "in1")
 
 c3 = Connection(HP_turbine, "out1", HP_FWH_2, "in1")
 
@@ -67,9 +79,14 @@ c7 = Connection(condenser, "out1", condensate_pump, "in1")
 
 c8 = Connection(condensate_pump, "out1", LP_FWH, "in2")
 
-c9 = Connection(LP_FWH, "out2", HP_pump, "in1")
+c9 = Connection(LP_FWH, "out2", LP_FWH_2, "in2")
+c9a = Connection(LP_FWH_2, "out2", HP_pump, "in1")
+
+c21 = Connection(LP_FWH_2, "out1", LP_FWH_2_valve, "in1")
+c22 = Connection(LP_FWH_2_valve, "out1", condenser_merge, "in3")
 
 c10 = Connection(HP_pump, "out1", HP_FWH_1, "in2")
+
 
 c11 = Connection(HP_FWH_1, "out2", HP_FWH_2, "in2")
 
@@ -108,6 +125,11 @@ steam_generator.set_attr(
 HP_turbine.set_attr(eta_s1=0.845, eta_s2=0.845, eta_s3=0.845)
 LP_turbine_stg1.set_attr(eta_s=0.845)
 
+# The reheater is fed externally (main steam bled off the SG in the real plant),
+# so it appears here as a duty-free pressure drop with the outlet state fixed by
+# the superheat spec on c2b.
+reheater.set_attr(pr=0.98)
+
 # Every heater here is fed by wet steam, so the shell temperature is fixed by
 # pressure alone (dT/dh = 0). A ttd equation therefore reduces to a constraint on
 # the single feedwater enthalpy it references, so no two heaters may reference the
@@ -139,6 +161,17 @@ LP_FWH.set_attr(
 # The drain is still wet leaving the shell, so no x= spec belongs on c19 -- the
 # energy balance sets its quality.
 
+# Separator drain heater. This is a drain cooler, not a condensing heater: the
+# shell side receives saturated liquid, so ttd_u would tie the feedwater outlet to
+# Tsat(1.13 MPa) = 459 K and demand ~900 MW from a drain flow that can supply
+# under 100 MW. ttd_l fixes how close the drain leaves to the incoming condensate
+# instead, and the duty (hence the feedwater rise on c9a) follows.
+LP_FWH_2.set_attr(
+    ttd_l=5,
+    pr1=0.97,
+    pr2=0.97
+)
+
 HP_pump.set_attr(eta_s=0.804)
 
 # Condenser cooling connections
@@ -158,7 +191,10 @@ c1.set_attr(p=5.57e6, h=2785618, m0=1880, fluid=working_fluid)
 # (Tsat(2.40e6) = 495.0 K). The stages stack tightly only because two HP heaters
 # are spanning a 146 K rise; adding the deaerator and the other stages from V4
 # will spread this out again.
-c2.set_attr(p=113e4)  # HP exhaust -> LP
+c2.set_attr(p=113e4)  # HP exhaust -> moisture separator
+c2a.set_attr(m0=1000, h0=2.78e6)  # separated vapour -> reheater
+c2b.set_attr(T=520, m0=1000, h0=2.93e6)  # reheated steam -> LP turbine
+c2c.set_attr(m0=140, h0=8.0e5)  # separator drain -> LP FWH 2
 c3.set_attr(p=2.83e6, m0=45, h0=2.68e6)  # stage-1 extraction -> HP FWH 2
 c13.set_attr(p=2.40e6, m0=690, h0=2.65e6)  # stage-2 extraction -> HP FWH merge
 
@@ -168,6 +204,16 @@ c9.set_attr(
     m0=1880,
     h0=2.93e5
 )
+
+c9a.set_attr(
+    m0=1880,
+    h0=3.3e5
+)
+
+# The separator already pins the shell inlet at x=0, so the drain mass flow is
+# not free: an x= spec on c21 on top of ttd_l would over-determine the heater.
+c21.set_attr(m0=140, h0=3.2e5)
+c22.set_attr(m0=140, h0=3.2e5)
 
 c10.set_attr(
     m0=1880,
@@ -197,9 +243,9 @@ c19.set_attr(m0=735, h0=6.35e5)
 c20.set_attr(m0=735, h0=6.35e5)
 
 AP1000_plant.add_conns(
-    c1, c2, c3, c5,
-    c6, c7, c8, c9, c10, c11, c12, c13, c14, c15,
-    c16, c17, c18, c19, c20, c0, c1_1, c1_2
+    c1, c2, c2a, c2b, c2c, c3, c5,
+    c6, c7, c8, c9, c9a, c10, c11, c12, c13, c14, c15,
+    c16, c17, c18, c19, c20, c21, c22, c0, c1_1, c1_2
 )
 
 try:
