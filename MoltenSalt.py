@@ -5,6 +5,9 @@ class MoltenSalt:
         placed on a TESPy connection. This module tracks the salt-side mass balance and
         state of charge (SoC) externally, using bulk cp from the MoltenSalt property
         class (Zavoico 2001 correlations).
+
+        Every correlation below is Zavoico's, so temp is in DEGREES CELSIUS.
+        Passing kelvin silently inflates cp by about 3% and wrecks the density.
     """
     def cp(self, temp):
         return 1443 + (0.172 * temp)

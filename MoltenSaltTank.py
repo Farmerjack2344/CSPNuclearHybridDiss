@@ -54,6 +54,16 @@ class MoltenSaltTank:
         """Total usable thermal energy capacity of the store, J."""
         return self.m_total * self.cp_avg * (self.T_hot - self.T_cold)
 
+    def available_charge(self, dt):
+        """Heat the cold tank could still absorb over dt, W."""
+        dh = self.cp_avg * (self.T_hot - self.T_cold)
+        return self.m_cold / dt * dh if dt > 0 else 0.0
+
+    def available_discharge(self, dt):
+        """Heat the hot tank could still supply over dt, W."""
+        dh = self.cp_avg * (self.T_hot - self.T_cold)
+        return self.m_hot / dt * dh if dt > 0 else 0.0
+
     def charge(self, Q_available, dt):
         """
         Move salt cold -> hot, absorbing up to Q_available (W) over dt (s).
@@ -101,7 +111,7 @@ class MoltenSaltTank:
         return m_dot_salt * dh, m_dot_salt
 
 
-def dispatch(Q_solar, Q_design, tank, dt):
+def dispatch(Q_solar, Q_design, tank, dt, min_load_fraction=0.25):
     """
     Decide, for one timestep, how solar thermal input and power-block demand
     are met, and update the tank's SoC accordingly.
@@ -114,9 +124,13 @@ def dispatch(Q_solar, Q_design, tank, dt):
                                 shortfall
     - "direct_partial"       : same as above but storage is empty, so the
                                 power block runs below Q_design
+    - "charging_only"        : there is sun but not enough of it, even with
+                                storage, to hold the power block above its
+                                minimum load, so the field only charges
     - "discharging"          : Q_solar == 0 (night), storage alone supplies
                                 the power block
-    - "shutdown"             : Q_solar == 0 and storage is empty
+    - "shutdown"             : Q_solar == 0 and storage cannot carry minimum
+                                load
 
     Parameters
     ----------
@@ -126,11 +140,15 @@ def dispatch(Q_solar, Q_design, tank, dt):
         clamp negative values to 0 before calling this).
     Q_design : float
         Power block design thermal input, W.
-        TODO: set from your steam-generator duty (not yet defined in
         Andasol1.py) rather than hardcoding — see main script.
     tank : MoltenSaltTank
     dt : float
         Timestep length, s (3600 for hourly PVGIS data).
+    min_load_fraction : float
+        Lowest fraction of Q_design the steam turbine is allowed to run at.
+        Asfand et al. validate Andasol-1 down to 25% MCR, so anything below
+        that is treated as the block being off rather than as a valid
+        operating point.
 
     Returns
     -------
@@ -142,6 +160,7 @@ def dispatch(Q_solar, Q_design, tank, dt):
     power block.
     """
     result = {"Q_solar": Q_solar, "Q_design": Q_design}
+    Q_min_load = min_load_fraction * Q_design
 
     if Q_solar >= Q_design:
         Q_surplus = Q_solar - Q_design
@@ -160,30 +179,58 @@ def dispatch(Q_solar, Q_design, tank, dt):
 
     elif Q_solar > 0:
         Q_shortfall = Q_design - Q_solar
-        Q_discharged, m_dot_discharge = tank.discharge(Q_shortfall, dt)
-        mode = "direct_plus_discharge" if Q_discharged > 0 else "direct_partial"
-        result.update(
-            mode=mode,
-            Q_to_pb=Q_solar + Q_discharged,
-            Q_to_storage=0.0,
-            Q_from_storage=Q_discharged,
-            m_dot_charge=0.0,
-            m_dot_discharge=m_dot_discharge,
-            Q_defocus=0.0,
-        )
+        # Look before withdrawing: if even a full top-up cannot lift the block
+        # to minimum load, the salt is better left in the hot tank.
+        Q_top_up = min(Q_shortfall, tank.available_discharge(dt))
+
+        if Q_solar + Q_top_up >= Q_min_load:
+            Q_discharged, m_dot_discharge = tank.discharge(Q_top_up, dt)
+            mode = "direct_plus_discharge" if Q_discharged > 0 else "direct_partial"
+            result.update(
+                mode=mode,
+                Q_to_pb=Q_solar + Q_discharged,
+                Q_to_storage=0.0,
+                Q_from_storage=Q_discharged,
+                m_dot_charge=0.0,
+                m_dot_discharge=m_dot_discharge,
+                Q_defocus=0.0,
+            )
+        else:
+            Q_charged, m_dot_charge = tank.charge(Q_solar, dt)
+            result.update(
+                mode="charging_only",
+                Q_to_pb=0.0,
+                Q_to_storage=Q_charged,
+                Q_from_storage=0.0,
+                m_dot_charge=m_dot_charge,
+                m_dot_discharge=0.0,
+                Q_defocus=Q_solar - Q_charged,
+            )
 
     else:
-        Q_discharged, m_dot_discharge = tank.discharge(Q_design, dt)
-        mode = "discharging" if Q_discharged > 0 else "shutdown"
-        result.update(
-            mode=mode,
-            Q_to_pb=Q_discharged,
-            Q_to_storage=0.0,
-            Q_from_storage=Q_discharged,
-            m_dot_charge=0.0,
-            m_dot_discharge=m_dot_discharge,
-            Q_defocus=0.0,
-        )
+        Q_target = min(Q_design, tank.available_discharge(dt))
+
+        if Q_target >= Q_min_load:
+            Q_discharged, m_dot_discharge = tank.discharge(Q_target, dt)
+            result.update(
+                mode="discharging",
+                Q_to_pb=Q_discharged,
+                Q_to_storage=0.0,
+                Q_from_storage=Q_discharged,
+                m_dot_charge=0.0,
+                m_dot_discharge=m_dot_discharge,
+                Q_defocus=0.0,
+            )
+        else:
+            result.update(
+                mode="shutdown",
+                Q_to_pb=0.0,
+                Q_to_storage=0.0,
+                Q_from_storage=0.0,
+                m_dot_charge=0.0,
+                m_dot_discharge=0.0,
+                Q_defocus=0.0,
+            )
 
     result["tank_soc"] = tank.soc
     return result
