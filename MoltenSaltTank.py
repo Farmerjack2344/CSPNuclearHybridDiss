@@ -134,15 +134,20 @@ def dispatch(Q_solar, Q_design, tank, dt):
 
     Returns
     -------
-    dict with mode, Q_to_pb, Q_to_storage, Q_from_storage, m_dot_charge,
-    m_dot_discharge, tank_soc — everything the TESPy-side code needs to set
-    Q= specs on the steam generator and charge/discharge heat exchangers.
+    dict with mode, Q_to_pb, Q_to_storage, Q_from_storage, Q_defocus,
+    m_dot_charge, m_dot_discharge, tank_soc — everything the TESPy-side code
+    needs to set Q= specs on the steam generator and charge/discharge heat
+    exchangers. The solar field must be driven with Q_solar - Q_defocus, not
+    with Q_solar, or the heat the store could not take gets pushed onto the
+    power block.
     """
     result = {"Q_solar": Q_solar, "Q_design": Q_design}
 
     if Q_solar >= Q_design:
         Q_surplus = Q_solar - Q_design
         Q_charged, m_dot_charge = tank.charge(Q_surplus, dt)
+        # Whatever the cold tank could not absorb has nowhere to go: the field
+        # is defocused rather than dumped on the power block.
         result.update(
             mode="charging",
             Q_to_pb=Q_design,
@@ -150,6 +155,7 @@ def dispatch(Q_solar, Q_design, tank, dt):
             Q_from_storage=0.0,
             m_dot_charge=m_dot_charge,
             m_dot_discharge=0.0,
+            Q_defocus=Q_surplus - Q_charged,
         )
 
     elif Q_solar > 0:
@@ -163,6 +169,7 @@ def dispatch(Q_solar, Q_design, tank, dt):
             Q_from_storage=Q_discharged,
             m_dot_charge=0.0,
             m_dot_discharge=m_dot_discharge,
+            Q_defocus=0.0,
         )
 
     else:
@@ -175,6 +182,7 @@ def dispatch(Q_solar, Q_design, tank, dt):
             Q_from_storage=Q_discharged,
             m_dot_charge=0.0,
             m_dot_discharge=m_dot_discharge,
+            Q_defocus=0.0,
         )
 
     result["tank_soc"] = tank.soc

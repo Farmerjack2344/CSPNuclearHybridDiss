@@ -92,42 +92,127 @@ def Q_solar_field(hour_num, DNI, T_amb_K, collector_area, optical_efficiency,
 
     return max(Q_real, 0.0)
 
+# ---------------------------------------------------------------------------
+# Molten salt storage
+# ---------------------------------------------------------------------------
+htf = MoltenSalt()
+
+
+T_cold_salt = 565.15   # K
+T_hot_salt = 659.15    # K
+total_salt_mass = 28_500e3  # kg
+salt_cp_avg = htf.cp((T_hot_salt + T_cold_salt) / 2)
+
+tank = MoltenSaltTank(
+    cp_avg=salt_cp_avg,
+    T_cold=T_cold_salt,
+    T_hot=T_hot_salt,
+    total_salt_mass=total_salt_mass,
+    initial_hot_mass=0.0,  # cold start; set >0 to warm-start SoC
+)
+
+# ---------------------------------------------------------------------------
+# Field parameters
+# ---------------------------------------------------------------------------
+
+Q_design_thermal = 50e6
+collector_area = 0.5e6       # m^2
+optical_efficiency = 0.75
+T_htf_in = 273.15 + 285        # K
+mdot_htf = 618.1              # kg/s
+
+DNI_values = meteorolgoical_values()
+dt = 3600  # s, hourly PVGIS data
+
+log = []
 
 # ---------------------------------------------------------------------------
 # NETWORK 1 -- Oil loop (Therminol VP-1)
-# Solar field -> [charge / discharge storage branches] -> oil side of the
-# steam generator -> back to field. This is the ONLY network the molten
-# salt tank interacts with (indirectly, via Q= on the charge/discharge HXs).
+#
+# Cold header -> circulation pump -> split between the solar field and the
+# discharge HX; the two hot streams merge again ahead of the steam generator.
+# Charging is bled off the hot header and returned cold. This is the ONLY
+# network the molten salt tank interacts with (indirectly, via Q= on the
+# charge/discharge HXs).
+#
+#   closer -> pump -> cold split -+-> field ------+-> hot merge -> SG -+-> cold merge -> closer
+#                                 |               |                    |
+#                                 |               +-> charge HX -------+
+#                                 +-> discharge HX -> hot merge
+#
+# Specification strategy: the cold header temperature is fixed and every
+# duty-carrying branch is given its duty plus its outlet temperature, so the
+# solver returns the mass flow each branch needs. The steam generator duty is
+# left free - it is whatever is required to bring the mixed oil back to the
+# cold header temperature, i.e. it closes the loop energy balance. Fixing the
+# SG duty as well would over-determine the network.
 # ---------------------------------------------------------------------------
+T_oil_cold = T_htf_in            # cold header / field inlet, K
+T_oil_hot = 273.15 + 393         # field outlet, K (Therminol VP-1 upper limit)
+T_oil_from_storage = T_hot_salt - 5.0  # oil leaving the discharge HX, K
+M_MIN = 1.0                      # kg/s trickle flow kept in idle branches
+Q_MIN_BRANCH = 1e5               # W below which a branch counts as idle
+
 OilLoop = Network()
 OilLoop.units.set_defaults(
     temperature="K", pressure="Pa", pressure_difference="Pa",
     enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
 )
+OilLoop.iterinfo = False
 
 cycle_closer_oil = CycleCloser("Oil Cycle Closer")
+htf_pump = Pump("HTF circulation pump")
+splitter_cold = Splitter("Cold header splitter", num_out=2)
 solar_field = SimpleHeatExchanger("Solar Field")
-splitter_field = Splitter("Post-field splitter", num_out=2)
+splitter_hot = Splitter("Hot header splitter", num_out=2)
 charge_hx_oil = SimpleHeatExchanger("Charge HX (oil side)")
 discharge_hx_oil = SimpleHeatExchanger("Discharge HX (oil side)")
-merge_pb = Merge("Pre-steam-generator merge", num_in=2)
+merge_hot = Merge("Hot header merge", num_in=2)
 oil_side_sg = SimpleHeatExchanger("Steam Generator (oil side)")
+merge_cold = Merge("Cold header merge", num_in=2)
 
-o1 = Connection(cycle_closer_oil, "out1", solar_field, "in1", label="o1_closer_to_field")
-o2 = Connection(solar_field, "out1", splitter_field, "in1", label="o2_field_to_splitter")
-o3 = Connection(splitter_field, "out1", merge_pb, "in1", label="o3_splitter_to_merge_direct")
-o4 = Connection(splitter_field, "out2", charge_hx_oil, "in1", label="o4_splitter_to_charge")
-o5 = Connection(charge_hx_oil, "out1", discharge_hx_oil, "in1", label="o5_charge_to_discharge")
-o6 = Connection(discharge_hx_oil, "out1", merge_pb, "in2", label="o6_discharge_to_merge")
-o7 = Connection(merge_pb, "out1", oil_side_sg, "in1", label="o7_merge_to_sg")
-o8 = Connection(oil_side_sg, "out1", cycle_closer_oil, "in1", label="o8_sg_to_closer")
+o1 = Connection(cycle_closer_oil, "out1", htf_pump, "in1", label="o1_closer_to_pump")
+o2 = Connection(htf_pump, "out1", splitter_cold, "in1", label="o2_pump_to_cold_splitter")
+o3 = Connection(splitter_cold, "out1", solar_field, "in1", label="o3_cold_to_field")
+o4 = Connection(solar_field, "out1", splitter_hot, "in1", label="o4_field_to_hot_splitter")
+o5 = Connection(splitter_hot, "out1", merge_hot, "in1", label="o5_field_direct_to_sg")
+o6 = Connection(splitter_hot, "out2", charge_hx_oil, "in1", label="o6_hot_to_charge")
+o7 = Connection(charge_hx_oil, "out1", merge_cold, "in2", label="o7_charge_to_cold_header")
+o8 = Connection(splitter_cold, "out2", discharge_hx_oil, "in1", label="o8_cold_to_discharge")
+o9 = Connection(discharge_hx_oil, "out1", merge_hot, "in2", label="o9_discharge_to_sg")
+o10 = Connection(merge_hot, "out1", oil_side_sg, "in1", label="o10_merge_to_sg")
+o11 = Connection(oil_side_sg, "out1", merge_cold, "in1", label="o11_sg_to_cold_header")
+o12 = Connection(merge_cold, "out1", cycle_closer_oil, "in1", label="o12_cold_header_to_closer")
 
-OilLoop.add_conns(o1, o2, o3, o4, o5, o6, o7, o8)
+OilLoop.add_conns(o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, o11, o12)
 
-# TODO (oil loop): fluid "INCOMP::TVP1" + mass flow guess on o1; pr= on
-# solar_field/charge_hx_oil/discharge_hx_oil/oil_side_sg.
-# splitter_field's split is controlled per-timestep via m= on o3/o4 below.
+o1.set_attr(fluid=oil_fluid, p=16e5, T=T_oil_cold)
 
+htf_pump.set_attr(eta_s=0.8)
+solar_field.set_attr(pr=0.98)
+oil_side_sg.set_attr(pr=0.97)
+# The storage HXs sit in parallel branches whose inlet and outlet pressures are
+# both pinned by the splitters/merges, so their pr has to stay free: giving them
+# one as well would close a pressure loop and over-determine the network.
+
+
+def set_duty_branch(m_conn, T_conn, component, Q, T_out):
+    """Drive a branch from its duty, or park it at a trickle flow when idle.
+
+    An active branch gets Q and its outlet temperature, leaving the mass flow to
+    be solved. An idle branch would otherwise need m = 0, which the solver
+    cannot handle, so it gets a small fixed flow and no duty instead. Duties
+    below Q_MIN_BRANCH are dropped for the same reason: they would ask for a
+    mass flow small enough to upset the solver, for negligible energy.
+    """
+    if abs(Q) > Q_MIN_BRANCH:
+        component.set_attr(Q=Q)
+        m_conn.set_attr(m=None)
+        T_conn.set_attr(T=T_out)
+    else:
+        component.set_attr(Q=0)
+        T_conn.set_attr(T=None)
+        m_conn.set_attr(m=M_MIN)
 
 # ---------------------------------------------------------------------------
 # NETWORK 2 -- Steam Rankine cycle (power block)
@@ -141,6 +226,7 @@ SteamCycle.units.set_defaults(
     temperature="K", pressure="Pa", pressure_difference="Pa",
     enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
 )
+SteamCycle.iterinfo = False
 
 cycle_closer_steam = CycleCloser("Steam Cycle Closer")
 steam_side_sg = SimpleHeatExchanger("Steam Generator (steam side)")
@@ -162,67 +248,30 @@ s7 = Connection(pump, "out1", cycle_closer_steam, "in1", label="s5_pump_to_close
 s8 = Connection(cooling_water_in, "out1", condenser, "in2", label="s6_cw_in")
 s9 = Connection(condenser, "out2", cooling_water_out, "in1", label="s7_cw_out")
 
-SteamCycle.add_conns(s1, s2, s3, s4, s6, s7, s8, s9)
+SteamCycle.add_conns(s1, s2, s3, s4, s5, s6, s7, s8, s9)
 
 
-HP_turbine.set_attr(eta_s=0.848)#,pr=0.197)
+HP_turbine.set_attr(eta_s=0.848)
 LP_turbine.set_attr(eta_s=0.916)
-steam_side_reheater.set_attr(Q=21.479e3)
+steam_side_sg.set_attr(pr=0.95)
+condenser.set_attr(pr1=1, pr2=0.98)
 pump.set_attr(eta_s=0.9)
 
-s2.set_attr(m=60.935, p=105e5, T=654.15)
+# Live steam state is held fixed; the steam mass flow is what follows from the
+# duty handed over by the oil loop, so it must NOT be fixed here as well.
+s2.set_attr(fluid=rankine_cycle_fluid, p=105e5, T=654.15)
 s3.set_attr(p=20.72e5)
 
-s4.set_attr(p=18.29e5,T=653.15)
+# Reheat outlet temperature is free: the reheater duty is set per timestep from
+# the oil-side duty split, and fixing both would over-determine the reheater.
+s4.set_attr(p=18.29e5)
 s5.set_attr(p=0.065e5)
 
-s8.set_attr(fluid=cooling_fluid, m=2502)
+s8.set_attr(fluid=cooling_fluid, m=2502, T=293.15, p=1.2e5)
 
-print("NOTE: component parameters (pr, eta_s, fluids) are not yet specified "
-      "on either network -- neither will solve until those are added. "
-      "See TODOs above.")
-
-
-# ---------------------------------------------------------------------------
-# Molten salt storage
-# ---------------------------------------------------------------------------
-htf = MoltenSalt()
-
-
-T_cold_salt = 565.15   # K
-T_hot_salt = 659.15    # K
-total_salt_mass = 28_500e3  # kg
-salt_cp_avg = htf.cp((T_hot_salt + T_cold_salt) / 2)
-
-tank = MoltenSaltTank(
-    cp_avg=salt_cp_avg,
-    T_cold=T_cold_salt,
-    T_hot=T_hot_salt,
-    total_salt_mass=total_salt_mass,
-    initial_hot_mass=0.0,  # cold start; set >0 to warm-start SoC
-)
-
-
-Q_design_thermal = 50e6
-if Q_design_thermal is None:
-    raise ValueError(
-        "Q_design_thermal is not set. Define the power block's design "
-        "thermal input (W) before running the time-marching loop."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Field parameters
-# ---------------------------------------------------------------------------
-collector_area = 0.5e6       # m^2
-optical_efficiency = 0.75
-T_htf_in = 273.15 + 285        # K
-mdot_htf = 618.1              # kg/s
-
-DNI_values = meteorolgoical_values()
-dt = 3600  # s, hourly PVGIS data
-
-log = []
+# Fraction of the oil-side duty that goes to reheat rather than to the main
+# steam generator.
+reheat_fraction = 0.1
 
 for hour_num, DNI, T_amb in DNI_values:
     T_amb_K = T_amb + 273.15
@@ -232,28 +281,45 @@ for hour_num, DNI, T_amb in DNI_values:
         collector_area=collector_area, optical_efficiency=optical_efficiency,
         T_htf_in=T_htf_in, mdot_htf=mdot_htf, htf=htf,
     )
-
     step = dispatch(Q_solar=Q_solar, Q_design=Q_design_thermal, tank=tank, dt=dt)
 
     # --- Oil loop side ---
-    charge_hx_oil.set_attr(Q=-step["Q_to_storage"] if step["Q_to_storage"] > 0 else 0)
-    o4.set_attr(m=step["m_dot_charge"] if step["m_dot_charge"] > 0 else None)
+    # The field carries only the heat the plant can actually use; the rest is
+    # defocused, otherwise a full hot tank would push its surplus into the
+    # power block.
+    set_duty_branch(o3, o4, solar_field, Q_solar - step["Q_defocus"], T_oil_hot)
+    set_duty_branch(o6, o7, charge_hx_oil, -step["Q_to_storage"], T_oil_cold)
+    set_duty_branch(o8, o9, discharge_hx_oil, step["Q_from_storage"], T_oil_from_storage)
 
-    discharge_hx_oil.set_attr(Q=step["Q_from_storage"] if step["Q_from_storage"] > 0 else 0)
-    o6.set_attr(m=step["m_dot_discharge"] if step["m_dot_discharge"] > 0 else None)
+    OilLoop.solve("design")
 
-    oil_side_sg.set_attr(Q=-step["Q_to_pb"])  # heat leaving the oil side
+    # What the steam generator actually picks up once the field, the storage
+    # branches and the pump work are balanced. Cross-check this against the
+    # dispatch bookkeeping value Q_to_pb.
+    Q_to_steam = max(-oil_side_sg.Q.val, 0.0)
 
     # --- Steam cycle side ---
     # Matched duty: exactly what the oil side gave up, the steam side
     # receives. This is the only coupling between the two networks.
-    steam_side_sg.set_attr(Q=step["Q_to_pb"] * 0.9)
-    steam_side_reheater.set_attr(Q=step["Q_to_pb"] * 0.1)
-    # OilLoop.solve("design")     # TODO: uncomment once oil-loop params are set
-    # SteamCycle.solve("design")  # TODO: uncomment once steam-cycle params are set
+    if Q_to_steam > Q_MIN_BRANCH:
+        steam_side_sg.set_attr(Q=Q_to_steam * (1 - reheat_fraction))
+        steam_side_reheater.set_attr(Q=Q_to_steam * reheat_fraction)
+        SteamCycle.solve("design")
+        P_gross = -(HP_turbine.P.val + LP_turbine.P.val + pump.P.val)
+        m_steam = s2.m.val
+    else:
+        # Below this the power block is off. Solving it would drive the steam
+        # mass flow to zero and the network with it.
+        P_gross = 0.0
+        m_steam = 0.0
 
     step["hour"] = hour_num
+    step["Q_sg_oil"] = Q_to_steam
+    step["m_oil_field"] = o3.m.val
+    step["T_sg_oil_in"] = o10.T.val
+    step["m_steam"] = m_steam
+    step["P_gross"] = P_gross
     log.append(step)
 
 results = pd.DataFrame(log)
-print(results[["hour", "Q_solar", "mode", "Q_to_pb", "tank_soc"]])
+print(results[["hour", "Q_solar", "mode", "Q_to_pb", "Q_sg_oil", "tank_soc", "P_gross"]])
