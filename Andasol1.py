@@ -436,7 +436,7 @@ for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
     log.append(step)
 
 results = pd.DataFrame(log)
-results.to_csv("andasol1_hourly.csv", index=False)
+results.to_csv("ModelResults/andasol1_hourly.csv", index=False)
 
 # ---------------------------------------------------------------------------
 # Annual summary

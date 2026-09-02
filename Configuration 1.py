@@ -484,6 +484,9 @@ condenser.set_attr(pr1=1, pr2=0.98)
 steam_generator_1.set_attr(pr=0.97, Q=1707e6)
 steam_generator_2.set_attr(Q=1707e6)
 
+super_heater.set_attr(pr=0.97)
+interstage_heater_0.set_attr(pr=0.97)
+
 # Isentropic efficiencies are the DCD-consistent values that land the shaft output
 # at 1200 MW: the wet LP stages run well below dry-expansion efficiency.
 HP_turbine.set_attr(eta_s1=0.84, eta_s2=0.84, eta_s3=0.84, eta_s4=0.84)
@@ -645,7 +648,7 @@ s21.set_attr(m0=172, h0=6.194e5)
 s22.set_attr(m0=172, h0=6.194e5)
 
 SteamCycle.add_conns(
-    s1, s1b, s1c, s1d, s2, s2a, s2b, s2c, s2d, s3, s5,
+    s1, s1a, s1b, s1c, s1d, s2, s2a, s2b, s2c, s2d, s3, s5,
     s6, s7, s8, s9, s9a, s10, s11, s12, s13, s14, s15,
     s16, s17, s18, s19, s20, s21, s22, s0, s1_1, s1_2,
     s30, s31, s32, s33, s34, s35, s36, s37, s38, s39,
@@ -681,7 +684,7 @@ def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network, tu
     reheater.set_attr(Q=Q_to_steam * reheat_fraction)
     Steam_network.solve("design")
     P_turbine =  -1 * (sum([i.P.val for i in turbine_list]))
-    P_pumps = -1 * (sum([i.P.val for i in pump_list]))
+    P_pumps = (sum([i.P.val for i in pump_list]))
     return P_turbine, P_pumps
 
 
@@ -690,27 +693,6 @@ def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network, tu
 # ---------------------------------------------------------------------------
 Q_to_steam_design = solve_oil_loop(Q_design_thermal, 0.0, 0.0)
 P_turbine_design, P_pumps_design = solve_power_block(Q_to_steam_design, super_heater, interstage_heater_0, SteamCycle, turbine_list, pump_list)
-
-print("Design point vs. Asfand et al. (2020) Andasol-1 flowsheet")
-print(f"{'quantity':<32}{'model':>12}{'paper':>12}")
-for label, model_value, paper_value in [
-    ("HTF mass flow, kg/s", o3.m.val, 618.1),
-    ("HTF field outlet, C", o4.T.val - 273.15, 393.0),
-    ("HTF return to field, C", o12.T.val - 273.15, 293.0),
-    ("Boiler duty, MW", steam_side_sg.Q.val / 1e6, 118.958),
-    ("Reheater duty, MW", steam_side_reheater.Q.val / 1e6, 21.479),
-    ("Live steam flow, kg/s", s2.m.val, 60.935),
-    ("HP turbine outlet, C", s3.T.val - 273.15, 214.2),
-    ("LP turbine inlet, C", s5.T.val - 273.15, 380.0),
-    ("Deaerator outlet, C", s12.T.val - 273.15, 180.1),
-    ("Feed water to boiler, C", s16.T.val - 273.15, 250.4),
-    ("Condenser steam flow, kg/s", s8.m.val, 38.902),
-    ("Condenser duty, MW", -condenser.Q.val / 1e6, 83.597),
-    ("Cooling water outlet, C", s18.T.val - 273.15, 35.0),
-    ("Gross turbine output, MW", P_turbine_design / 1e6, 55.0),
-]:
-    print(f"{label:<32}{model_value:>12.2f}{paper_value:>12.2f}")
-print()
 
 # ---------------------------------------------------------------------------
 # Annual simulation
@@ -739,7 +721,7 @@ for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
     # Matched duty: exactly what the oil side gave up, the steam side
     # receives. This is the only coupling between the two networks.
     if step["Q_to_pb"] > 0 and Q_to_steam > Q_MIN_BRANCH:
-        P_turbine, P_pumps = solve_power_block(Q_to_steam, steam_side_sg,steam_side_reheater,SteamCycle,turbine_list,pump_list)
+        P_turbine, P_pumps = solve_power_block(Q_to_steam, super_heater,interstage_heater_0,SteamCycle,turbine_list,pump_list)
         m_steam = s2.m.val
     else:
         # The block is off: solving it would drive the steam mass flow to zero
@@ -760,7 +742,7 @@ for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
     log.append(step)
 
 results = pd.DataFrame(log)
-results.to_csv("andasol1_hourly.csv", index=False)
+results.to_csv("configuration_1_hourly.csv", index=False)
 
 # ---------------------------------------------------------------------------
 # Annual summary
@@ -770,19 +752,6 @@ to_GWh = hours / 1e9
 Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
 operating = results["P_turbine"] > 0
 
-print("Annual results")
-print(f"  DNI on the aperture          {Q_incident:8.1f} GWh")
-print(f"  Collected by the field       {results['Q_solar'].sum() * to_GWh:8.1f} GWh")
-print(f"  Defocused                    {results['Q_defocus'].sum() * to_GWh:8.1f} GWh")
-print(f"  Delivered to the power block {results['Q_to_pb'].sum() * to_GWh:8.1f} GWh")
-print(f"  Gross generation             {results['P_turbine'].sum() * to_GWh:8.1f} GWh")
-print(f"  Net of pumping               {results['P_net'].sum() * to_GWh:8.1f} GWh")
-print(f"  Operating hours              {operating.sum():8d} h")
-print(f"  Equivalent full load hours   "
-      f"{results['P_turbine'].sum() / P_turbine_design:8.0f} h")
-print(f"  Gross capacity factor        "
-      f"{results['P_turbine'].sum() / (P_turbine_design * len(results)):8.1%}")
-print()
-print("Hours by dispatch mode")
-print(results["mode"].value_counts().to_string())
+
+
 
