@@ -4,7 +4,9 @@ import numpy as np
 
 from tespy.networks import Network
 from tespy.components import (SimpleHeatExchanger, Splitter, Merge, CycleCloser,
-                              Source, Sink, Pump, SteamTurbine, Condenser, HeatExchanger)
+                              Source, Sink, Pump, SteamTurbine, Condenser, HeatExchanger, SolarCollector,
+                                ParabolicTrough
+                              )
 from tespy.connections import Connection
 
 from MoltenSaltTank import MoltenSaltTank, dispatch
@@ -185,7 +187,7 @@ OilLoop.iterinfo = False
 cycle_closer_oil = CycleCloser("Oil Cycle Closer")
 htf_pump = Pump("HTF circulation pump")
 splitter_cold = Splitter("Cold header splitter", num_out=2)
-solar_field = SimpleHeatExchanger("Solar Field")
+solar_field = ParabolicTrough("Solar Field")
 splitter_hot = Splitter("Hot header splitter", num_out=2)
 charge_hx_oil = SimpleHeatExchanger("Charge HX (oil side)")
 discharge_hx_oil = SimpleHeatExchanger("Discharge HX (oil side)")
@@ -215,7 +217,7 @@ OilLoop.add_conns(o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, o11, o12)
 o1.set_attr(fluid=oil_fluid, p=28e5, T=T_oil_cold)
 
 htf_pump.set_attr(eta_s=0.8)
-solar_field.set_attr(pr=0.65)
+solar_field.set_attr(A=collector_area,pr=0.65)
 oil_side_sg.set_attr(pr=0.95)
 # The storage HXs sit in parallel branches whose inlet and outlet pressures are
 # both pinned by the splitters/merges, so their pr has to stay free: giving them
@@ -390,7 +392,7 @@ print()
 # ---------------------------------------------------------------------------
 # Annual simulation
 # ---------------------------------------------------------------------------
-for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values:
+for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
     T_amb_K = T_amb + 273.15
 
     Q_solar = Q_solar_field(
