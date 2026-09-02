@@ -111,6 +111,27 @@ def Q_solar_field(hour_num, DNI, T_amb_K, collector_area, optical_efficiency,
 
     return max(Q_real, 0.0)
 
+def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage):
+    """Solve the HTF loop for one timestep and return the duty it hands over."""
+    set_duty_branch(o3, o4, solar_field, Q_field, T_oil_hot)
+    set_duty_branch(o6, o7, charge_hx_oil, -Q_to_storage, T_oil_cold)
+    set_duty_branch(o8, o9, discharge_hx_oil, Q_from_storage, T_oil_from_storage)
+    OilLoop.solve("design")
+    return max(-oil_side_sg.Q.val, 0.0)
+
+
+def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network, turbine_list, pump_list):
+    """Solve the steam cycle against the duty the HTF loop gave up.
+
+    Returns gross turbine output and the feed water pumping parasitics, both W.
+    """
+    heat_in_component.set_attr(Q=Q_to_steam * (1 - reheat_fraction))
+    reheater.set_attr(Q=Q_to_steam * reheat_fraction)
+    Steam_network.solve("design")
+    P_turbine =  -1 * (sum([i.P.val for i in turbine_list]))
+    P_pumps = (sum([i.P.val for i in pump_list]))
+    return P_turbine, P_pumps
+
 # ---------------------------------------------------------------------------
 # Molten salt storage
 # ---------------------------------------------------------------------------
@@ -659,26 +680,7 @@ pump_list = [condensate_pump, HP_pump]
 reheat_fraction = 21.479 / (118.958 + 21.479)
 
 
-def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage):
-    """Solve the HTF loop for one timestep and return the duty it hands over."""
-    set_duty_branch(o3, o4, solar_field, Q_field, T_oil_hot)
-    set_duty_branch(o6, o7, charge_hx_oil, -Q_to_storage, T_oil_cold)
-    set_duty_branch(o8, o9, discharge_hx_oil, Q_from_storage, T_oil_from_storage)
-    OilLoop.solve("design")
-    return max(-oil_side_sg.Q.val, 0.0)
 
-
-def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network, turbine_list, pump_list):
-    """Solve the steam cycle against the duty the HTF loop gave up.
-
-    Returns gross turbine output and the feed water pumping parasitics, both W.
-    """
-    heat_in_component.set_attr(Q=Q_to_steam * (1 - reheat_fraction))
-    reheater.set_attr(Q=Q_to_steam * reheat_fraction)
-    Steam_network.solve("design")
-    P_turbine =  -1 * (sum([i.P.val for i in turbine_list]))
-    P_pumps = (sum([i.P.val for i in pump_list]))
-    return P_turbine, P_pumps
 
 
 # ---------------------------------------------------------------------------
@@ -693,8 +695,11 @@ P_turbine_design, P_pumps_design = solve_power_block(Q_to_steam_design, super_he
 day_number = 183
 day = (24 * day_number)
 eod = day + 24
-
+tick = 0
 for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[day:eod]:
+    progress_total = len(DNI_values[day:eod])
+    progress = tick / progress_total
+
     T_amb_K = T_amb + 273.15
 
     Q_solar = Q_solar_field(
@@ -729,25 +734,27 @@ for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[day:eod]:
     )
     m_steam = s2.m.val
 
-
-    print("\n"*5)
-    print(f"Pumps: {P_pumps + htf_pump.P.val} ")
-    print(f"Turbines: {P_turbine}")
-
-    step["hour"] = hour_num
     step["day_of_year"] = day_of_year
-    step["DNI"] = DNI
-    step["T_amb"] = T_amb
+    step["hour"] = hour_num
+    step["DNI(K)"] = DNI
+    step["T_amb(K)"] = T_amb
     step["Q_sg_oil"] = Q_to_steam
     step["m_oil_field"] = o3.m.val
     step["T_sg_oil_in"] = o10.T.val
     step["m_steam"] = m_steam
     step["P_turbine"] = P_turbine
-    step["P_net"] = P_turbine - P_pumps - htf_pump.P.val
+    step["P_pumps"] = P_pumps + htf_pump.P.val
+    step["P_net"] = P_turbine - step["P_pumps"]
     # Both steam generators are on rating, so the nuclear heat input is twice
     # steam_generator_duty, not once.
     step["efficiency"] = step["P_net"] / (step["Q_sg_oil"] + 2 * steam_generator_duty)
     log.append(step)
+
+    tick += 1
+    print("\n" * 5)
+    print(f"Turbine power: {step["P_turbine"]}")
+    print(f"Pump power: {step["P_pumps"]}")
+    print(f"Efficiency: {step["efficiency"]}")
 
 results = pd.DataFrame(log)
 results.to_csv("ModelResults/configuration_1_hourly.csv", index=False)
@@ -757,7 +764,7 @@ results.to_csv("ModelResults/configuration_1_hourly.csv", index=False)
 # ---------------------------------------------------------------------------
 hours = dt / 3600
 to_GWh = hours / 1e9
-Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
+Q_incident = (results["DNI(K)"] * collector_area).sum() * to_GWh
 operating = results["P_turbine"] > 0
 
 
