@@ -2,13 +2,6 @@ import pandas as pd
 import math
 import numpy as np
 
-from tespy.networks import Network
-from tespy.components import (SimpleHeatExchanger, Splitter, Merge, CycleCloser,
-                              Source, Sink, Pump, SteamTurbine, Condenser, HeatExchanger, SolarCollector,
-                                ParabolicTrough
-                              )
-from tespy.connections import Connection
-
 from MoltenSaltTank import MoltenSaltTank, dispatch
 from MoltenSalt import MoltenSalt
 from tespy.networks import Network
@@ -16,7 +9,7 @@ from tespy.components import (
     CycleCloser, Pump, Condenser, Turbine,
     SimpleHeatExchanger, Source, Sink,
     HeatExchanger, Merge, Splitter, Valve,
-    DropletSeparator
+    DropletSeparator, ParabolicTrough
 )
 
 from MultistageTurbine import MultiStageExtractionTurbine
@@ -272,7 +265,7 @@ def set_duty_branch(m_conn, T_conn, component, Q, T_out):
 # the HP exhaust instead and the reheater has so little steam to heat that its
 # outlet comes out hotter than the 393 C oil supposedly heating it.
 # ---------------------------------------------------------------------------
-
+steam_generator_duty = 1707e6
 
 
 
@@ -481,8 +474,8 @@ condenser.set_attr(pr1=1, pr2=0.98)
 # of the two shells may carry a pressure spec: both outlets are pinned to the main
 # steam header pressure by the merge, so a second pr equation would be redundant
 # with it and leave the Jacobian singular.
-steam_generator_1.set_attr(pr=0.97, Q=1707e6)
-steam_generator_2.set_attr(Q=1707e6)
+steam_generator_1.set_attr(pr=0.97, Q=steam_generator_duty)
+steam_generator_2.set_attr(Q=steam_generator_duty)
 
 super_heater.set_attr(pr=0.97)
 interstage_heater_0.set_attr(pr=0.97)
@@ -565,7 +558,7 @@ s1c.set_attr(m0=66, h0=2.786e6)  # main steam bleed -> interstage heater 1
 # Extrastion masses are results of each heater's ttd_u. c13 sits at 2.0 MPa so
 # that Tsat = 485.5 K supports the DCD's 478 K feedwater point ahead of the
 # final heater, and s3 at 2.83 MPa (Tsat = 503.6 K) the 500.9 K SG inlet.
-s2.set_attr(p=1.133e6, m0=1388, h0=2.55e6)  # HP exhaust -> moisture separator
+s2.set_attr(p=1.133e6, m0=1388)#, h0=2.55e6)  # HP exhaust -> moisture separator
 s2a.set_attr(m0=1216, h0=2.782e6)  # separated vapour -> interstage heater 2
 s2d.set_attr(T=490, m0=1216, h0=2.863e6)  # first reheat stage outlet
 s2b.set_attr(T=527.7, m0=1216, h0=2.950e6)  # reheated steam -> LP turbine
@@ -697,8 +690,11 @@ P_turbine_design, P_pumps_design = solve_power_block(Q_to_steam_design, super_he
 # ---------------------------------------------------------------------------
 # Annual simulation
 # ---------------------------------------------------------------------------
+day_number = 183
+day = (24 * day_number)
+eod = day + 24
 
-for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
+for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[day:eod]:
     T_amb_K = T_amb + 273.15
 
     Q_solar = Q_solar_field(
@@ -720,14 +716,23 @@ for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
     # --- Steam cycle side ---
     # Matched duty: exactly what the oil side gave up, the steam side
     # receives. This is the only coupling between the two networks.
-    if step["Q_to_pb"] > 0 and Q_to_steam > Q_MIN_BRANCH:
-        P_turbine, P_pumps = solve_power_block(Q_to_steam, super_heater,interstage_heater_0,SteamCycle,turbine_list,pump_list)
-        m_steam = s2.m.val
-    else:
-        # The block is off: solving it would drive the steam mass flow to zero
-        # and the network with it.
+    #
+    # The two nuclear steam generators are always at rating, so the block never
+    # shuts down with the field. When there is no solar heat the block is still
+    # solved, just with zero duty on the solar superheater and interstage
+    # heater, which is the unaugmented Rankine cycle.
+    if step["Q_to_pb"] <= 0 or Q_to_steam <= Q_MIN_BRANCH:
         Q_to_steam = 0.0
-        P_turbine, P_pumps, m_steam = 0.0, 0.0, 0.0
+
+    P_turbine, P_pumps = solve_power_block(
+        Q_to_steam, super_heater, interstage_heater_0, SteamCycle, turbine_list, pump_list
+    )
+    m_steam = s2.m.val
+
+
+    print("\n"*5)
+    print(f"Pumps: {P_pumps + htf_pump.P.val} ")
+    print(f"Turbines: {P_turbine}")
 
     step["hour"] = hour_num
     step["day_of_year"] = day_of_year
@@ -739,10 +744,13 @@ for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
     step["m_steam"] = m_steam
     step["P_turbine"] = P_turbine
     step["P_net"] = P_turbine - P_pumps - htf_pump.P.val
+    # Both steam generators are on rating, so the nuclear heat input is twice
+    # steam_generator_duty, not once.
+    step["efficiency"] = step["P_net"] / (step["Q_sg_oil"] + 2 * steam_generator_duty)
     log.append(step)
 
 results = pd.DataFrame(log)
-results.to_csv("configuration_1_hourly.csv", index=False)
+results.to_csv("ModelResults/configuration_1_hourly.csv", index=False)
 
 # ---------------------------------------------------------------------------
 # Annual summary
