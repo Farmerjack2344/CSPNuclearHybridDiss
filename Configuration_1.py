@@ -18,10 +18,8 @@ from MultistageTurbine import MultiStageExtractionTurbine
 
 from tespy.connections import Connection
 
-rankine_cycle_fluid = {"water": 1}
-cooling_fluid = {"water": 1}
-oil_fluid = {"INCOMP::TVP1": 1}
-
+def highlight(text):
+    return Fore.GREEN + Style.BRIGHT + text + Style.RESET_ALL
 
 # ---------------------------------------------------------------------------
 # Solar field helper functions: to calculate thermal loss
@@ -82,7 +80,7 @@ def meteorolgoical_values():
 def Q_solar_field(hour_num, DNI, T_amb_K, collector_area, optical_efficiency,
                    T_htf_in, mdot_htf, htf, day_of_year, solar_elevation_deg):
     """
-        Calculates the heat transferred tot eh thermal oil in the collector
+        Calculates the heat transferred to the thermal oil in the collector
 
     :param hour_num: Hour after midnight
     :param DNI: Direct Normal Irraidiance
@@ -117,7 +115,7 @@ def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage, oil_conns,
                    solar_field, T_field_out, T_charge_out, T_discharge_out,
                    charge_hx_oil=None, discharge_hx_oil=None, OilLoop=None,
                    oil_sg=None):
-    """Solve the HTF loop for one timestep and return the duty it hands over.
+    """Solve the HTF loop for one timestep and return the duty.
 
     :param T_field_out: field outlet temperature, K
     :param T_charge_out: oil temperature returned from the charge HX, K
@@ -152,11 +150,6 @@ def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network, tu
 def set_duty_branch(m_conn, T_conn, component, Q, T_out):
     """Drive a branch from its duty, or park it at a trickle flow when idle.
 
-    An active branch gets Q and its outlet temperature, leaving the mass flow to
-    be solved. An idle branch would otherwise need m = 0, which the solver
-    cannot handle, so it gets a small fixed flow and no duty instead. Duties
-    below Q_MIN_BRANCH are dropped for the same reason: they would ask for a
-    mass flow small enough to upset the solver, for negligible energy.
     """
     if abs(Q) > Q_MIN_BRANCH:
         component.set_attr(Q=Q)
@@ -183,52 +176,25 @@ tank = MoltenSaltTank(
     T_cold=T_cold_salt,
     T_hot=T_hot_salt,
     total_salt_mass=total_salt_mass,
-    initial_hot_mass=0.0,  # cold start; set >0 to warm-start SoC
+    initial_hot_mass=0.0,
 )
 
 # ---------------------------------------------------------------------------
 # Field parameters
-#
-# Reference plant is Andasol-1 as modelled by Asfand et al. (2020),
-# "Thermodynamic Performance and Water Consumption of Hybrid Cooling System
-# Configurations for Concentrated Solar Power Plants", Sustainability 12, 4739.
-# Their Table 1/Table 4 design point: HTF 618.1 kg/s delivered to the power
-# block at 393 C, boiler duty 118.958 MW, reheater duty 21.479 MW (a 90/10
-# split), live steam 60.935 kg/s at 381 C and 105 bar, condenser duty
-# 83.597 MW, gross output 55 MWe, net output 50 MWe.
-# ---------------------------------------------------------------------------
+#----------------------------------------------------------------------------
 
-# Power block design THERMAL input, i.e. boiler + reheater duty. Note this is
-# the heat the block swallows, not its 50 MWe electrical rating.
+# Power block design THERMAL input
 Q_design_thermal = 118.958e6 + 21.479e6
-collector_area = 510_120      # m^2, Andasol-1 aperture
+collector_area = 510120      # m^2, Andasol-1 aperture
 optical_efficiency = 0.75
 T_htf_in = 273.15 + 293        # K, HTF returned to the field from the SG
-mdot_htf = 618.1              # kg/s, design HTF flow (paper Table 1)
+mdot_htf = 618.1              # kg/s, design HTF flow
 
 DNI_values = meteorolgoical_values()
 dt = 3600  # s, hourly PVGIS data
 
 # ---------------------------------------------------------------------------
 # NETWORK 1 -- Oil loop (Therminol VP-1)
-#
-# Cold header -> circulation pump -> split between the solar field and the
-# discharge HX; the two hot streams merge again ahead of the steam generator.
-# Charging is bled off the hot header and returned cold. This is the ONLY
-# network the molten salt tank interacts with (indirectly, via Q= on the
-# charge/discharge HXs).
-#
-#   closer -> pump -> cold split -+-> field ------+-> hot merge -> SG -+-> cold merge -> closer
-#                                 |               |                    |
-#                                 |               +-> charge HX -------+
-#                                 +-> discharge HX -> hot merge
-#
-# Specification strategy: the cold header temperature is fixed and every
-# duty-carrying branch is given its duty plus its outlet temperature, so the
-# solver returns the mass flow each branch needs. The steam generator duty is
-# left free - it is whatever is required to bring the mixed oil back to the
-# cold header temperature, i.e. it closes the loop energy balance. Fixing the
-# SG duty as well would over-determine the network.
 # ---------------------------------------------------------------------------
 T_oil_cold = T_htf_in            # cold header / field inlet, K
 T_oil_hot = 273.15 + 393         # field outlet, K (Therminol VP-1 upper limit)
@@ -236,7 +202,9 @@ T_oil_from_storage = T_hot_salt - 5.0  # oil leaving the discharge HX, K
 M_MIN = 1.0                      # kg/s trickle flow kept in idle branches
 Q_MIN_BRANCH = 1e5               # W below which a branch counts as idle
 
-
+rankine_cycle_fluid = {"water": 1}
+cooling_fluid = {"water": 1}
+oil_fluid = {"INCOMP::TVP1": 1}
 def solve_configuration1(
         # --- HTF loop operating states ---
         T_field_out=T_oil_hot,               # K, oil leaving the solar field
@@ -290,8 +258,7 @@ def solve_configuration1(
 ):
     """Solve configuration 1: solar heat injected into the nuclear steam cycle.
 
-    Every argument is an operating condition that moves the cycle efficiency, so
-    they can be swept without touching the network topology.
+
     """
     OilLoop = Network()
     OilLoop.units.set_defaults(
@@ -462,20 +429,20 @@ def solve_configuration1(
                     label="main steam header -> solar superheater")
 
     s1a = Connection(super_heater, "out1", main_steam_split, "in1",
-                     label="solar superheated main steam")
+                     label=highlight("solar superheated main steam"))
     s1b = Connection(main_steam_split, "out1", HP_turbine, "in1",
-                     label="main steam -> HP turbine inlet")
+                     label=highlight("main steam -> HP turbine inlet"))
     s1c = Connection(main_steam_split, "out2", interstage_heater_0, "in1",
                      label="main steam bleed -> solar reheater")
     s1d = Connection(interstage_heater_0, "out1", interstage_heater_1, "in1",
-                     label="solar reheater outlet -> reheat stage 1 shell")
+                     label=highlight("solar reheater outlet -> reheat stage 1 shell"))
 
 
 
     # MultiStageExtrastionTurbine: out1 is after stage 1 (highest outlet P),
     # outN is the exhaust (lowest P). Stage i+1 uses out{i}'s (p, h) as its inlet.
     s2 = Connection(HP_turbine, "out4", moisture_separator, "in1",
-                    label="HP turbine exhaust -> moisture separator")
+                    label=highlight("HP turbine exhaust -> moisture separator"))
 
     # DropletSeparator: out1 is the saturated liquid drain, out2 the saturated vapour
     # that goes on to the interstage reheaters and the LP turbine.
@@ -491,7 +458,7 @@ def solve_configuration1(
 
     # Interstage heater shell sides and their sascaded drains.
     s30 = Connection(HP_turbine, "out1", interstage_heater_2, "in1",
-                     label="HP bleed 1 -> reheat stage 2 shell")
+                     label=highlight("HP bleed 1 -> reheat stage 2 shell"))
     s31 = Connection(interstage_heater_1, "out1", interstage_heater_1_valve, "in1")
     s32 = Connection(interstage_heater_1_valve, "out1", interstage_drain_merge, "in1")
     s33 = Connection(interstage_heater_2, "out1", interstage_drain_merge, "in2")
@@ -505,19 +472,20 @@ def solve_configuration1(
 
     # LP expansion and the three LP bleeds.
     s40 = Connection(LP_turbine_stg1, "out1", LP_FWH_2_merge, "in2",
-                     label="LP bleed 1 -> LP FWH 2 shell")
+                     label=highlight("LP bleed 1 -> LP FWH 2 shell"))
     s41 = Connection(LP_turbine_stg1, "out2", LP_bleed_split_1, "in1",
-                     label="LP stage 1 exhaust (LP bleed 2 pressure)")
+                     label=highlight("LP stage 1 exhaust (LP bleed 2 pressure)"))
 
     s42 = Connection(LP_bleed_split_1, "out1", LP_FWH_3_merge, "in2",
-                     label="LP bleed 2 -> LP FWH 3 shell")
+                     label=highlight("LP bleed 2 -> LP FWH 3 shell"))
     s43 = Connection(LP_bleed_split_1, "out2", LP_turbine_stg2, "in1")
 
     s44 = Connection(LP_turbine_stg2, "out1", LP_bleed_split_2, "in1",
-                     label="LP stage 2 exhaust (LP bleed 3 pressure)")
+                     label=highlight("LP stage 2 exhaust (LP bleed 3 pressure)"))
     s45 = Connection(LP_bleed_split_2, "out1", LP_FWH_4_merge, "in2",
-                     label="LP bleed 3 -> LP FWH 4 shell")
-    s46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1")
+                     label=highlight("LP bleed 3 -> LP FWH 4 shell"))
+    s46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1",
+                     label=highlight(""))
 
     s5 = Connection(LP_turbine_stg3, "out1", condenser_merge, "in1",
                     label="LP turbine exhaust (condenser backpressure)")
@@ -564,7 +532,7 @@ def solve_configuration1(
 
     s12 = Connection(HP_FWH_valve_2, "out1", HP_FWH_M, "in1")
     s13 = Connection(HP_turbine, "out3", HP_FWH_M, "in2",
-                     label="HP bleed 3 -> HP FWH 1 shell")
+                     label=highlight("HP bleed 3 -> HP FWH 1 shell"))
 
     s14 = Connection(HP_FWH_M, "out1", HP_FWH_1, "in1")
     s15 = Connection(HP_FWH_1, "out1", HP_FWH_valve_1, "in1")
