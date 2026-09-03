@@ -76,35 +76,9 @@ class MultiStageExtractionTurbine(Turbomachine):
     Turbine with an arbitrary number of expansion stages and extraction
     outlets.
 
-    Example
-    -------
     A 3-stage turbine: two extraction bleeds after stages 1 and 2, plus the
     final exhaust after stage 3.
 
-    >>> from tespy.components import Source, Sink
-    >>> from tespy.connections import Connection
-    >>> from tespy.networks import Network
-    >>> nw = Network(iterinfo=False)
-    >>> nw.units.set_defaults(
-    ...     temperature='K', pressure='Pa', pressure_difference='Pa',
-    ...     enthalpy='J/kg', mass_flow='kg/s'
-    ... )
-    >>> so = Source('inlet steam')
-    >>> bleed1 = Sink('extraction 1')
-    >>> bleed2 = Sink('extraction 2')
-    >>> exhaust = Sink('exhaust')
-    >>> t = MultiStageExtractionTurbine('HP turbine', num_stages=3)
-    >>> c_in = Connection(so, 'out1', t, 'in1', label='c_in')
-    >>> c_b1 = Connection(t, 'out1', bleed1, 'in1', label='c_b1')
-    >>> c_b2 = Connection(t, 'out2', bleed2, 'in1', label='c_b2')
-    >>> c_ex = Connection(t, 'out3', exhaust, 'in1', label='c_ex')
-    >>> nw.add_conns(c_in, c_b1, c_b2, c_ex)
-    >>> t.set_attr(eta_s1=0.9, eta_s2=0.9, eta_s3=0.9)
-    >>> c_in.set_attr(fluid={'water': 1}, m=100, p=15e6, T=850)
-    >>> c_b1.set_attr(p=8e6, m=20)
-    >>> c_b2.set_attr(p=4e6, m=20)
-    >>> c_ex.set_attr(p=1e6)
-    >>> nw.solve('design')
     """
 
     # ------------------------------------------------------------------
@@ -202,9 +176,6 @@ class MultiStageExtractionTurbine(Turbomachine):
             self._structure_matrix[k + eq, self.inl[0].fluid.sm_col] = 1
             self._structure_matrix[k + eq, conn.fluid.sm_col] = -1
 
-    # ------------------------------------------------------------------
-    # Stage bookkeeping
-    # ------------------------------------------------------------------
     def _num_active_stages(self):
         return len(self.outl)
 
@@ -222,20 +193,13 @@ class MultiStageExtractionTurbine(Turbomachine):
     def _stage_outlet_conn(self, stage):
         return self.outl[stage - 1]
 
-    # ------------------------------------------------------------------
-    # Fluid-wrapper propagation: a single inlet must propagate to every
-    # outlet (default Component behaviour assumes 1:1 inlet/outlet
-    # pairing, which only reaches out1). Same fix as tespy's own Splitter.
-    # ------------------------------------------------------------------
+
     def propagate_wrapper_to_target(self, branch):
         branch["components"] += [self]
         for outconn in self.outl:
             branch["connections"] += [outconn]
             outconn.target.propagate_wrapper_to_target(branch)
 
-    # ------------------------------------------------------------------
-    # Per-stage isentropic efficiency equation
-    # ------------------------------------------------------------------
     def _stage_eta_s_func(self, stage):
         i = self._stage_inlet_conn(stage)
         o = self._stage_outlet_conn(stage)

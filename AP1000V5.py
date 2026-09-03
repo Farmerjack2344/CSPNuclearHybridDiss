@@ -203,6 +203,11 @@ c0 = Connection(main_steam_merge, "out1", cc, "in1")
 c1_1 = Connection(cwso, "out1", condenser, "in2", label="11")
 c1_2 = Connection(condenser, "out2", cwsi, "in1", label="12")
 
+
+
+
+#Component Attributes
+
 condenser.set_attr(pr1=1, pr2=0.98)
 
 # Each steam generator carries its DCD rating of 1707 MWt, so the total NSSS heat
@@ -276,6 +281,8 @@ MSR_FWH.set_attr(
 )
 
 HP_pump.set_attr(eta_s=0.804)
+
+# COnnection Attributes
 
 # Condenser cooling connections
 c1_1.set_attr(T=288.15, p=1.2e5, fluid=cooling_fluid)
