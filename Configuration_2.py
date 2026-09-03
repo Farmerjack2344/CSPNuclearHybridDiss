@@ -11,7 +11,7 @@ from tespy.components import (
     CycleCloser, Pump, Condenser, Turbine,
     SimpleHeatExchanger, Source, Sink,
     HeatExchanger, Merge, Splitter, Valve,
-    DropletSeparator, ParabolicTrough,SteamTurbine
+    DropletSeparator, ParabolicTrough
 )
 
 from MultistageTurbine import MultiStageExtractionTurbine
@@ -21,6 +21,11 @@ from tespy.connections import Connection
 rankine_cycle_fluid = {"water": 1}
 cooling_fluid = {"water": 1}
 oil_fluid = {"INCOMP::TVP1": 1}
+# Bottoming cycle working fluid. R245fa is the standard modelling choice for a
+# heat source near 100 C: it condenses above atmospheric pressure at ambient
+# cooling water temperature, so the ORC condenser does not run under vacuum, and
+# it is a dry fluid, so the expansion never enters the wet region.
+orc_fluid = {"R245fa": 1}
 
 
 def highlight(text):
@@ -44,10 +49,7 @@ def trim_results(*networks):
 
     Every connection worth reading was given a number by :func:`state`. What is
     left over is the valve inlets and the shell drains entering the cascade
-    merges, whose states are already visible on the component either side. The
-    deaerator and the HP heater of the secondary cycle are merges too, but they
-    are open feedwater heaters rather than plumbing, so their inlets are numbered
-    and stay in the table.
+    merges, whose states are already visible on the component either side.
     """
     for network in networks:
         for conn in network.conns["object"]:
@@ -192,17 +194,28 @@ def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage, oil_conns,
 
 
 def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network,
-                      turbine_list, pump_list, reheat_fraction=0.2):
-    """Solve the steam cycle against the duty the HTF loop gave up.
+                      turbine_list, pump_list, reheat_fraction=0.2,
+                      pr_heat_in=1.0, pr_reheater=1.0):
+    """Solve the coupled nuclear + ORC network against the duty the HTF gave up.
 
-    Returns gross turbine output and the feed water pumping parasitics, both W.
+    Returns gross turbine output and the pumping parasitics, both W.
+
+    Both solar exchangers are valved out of the vapour path (pr = 1) whenever the
+    field has nothing to hand over. Leaving a pressure drop on an exchanger that
+    transfers no heat is a pure throttling loss, i.e. the plant would come out
+    worse at night than it would with no solar equipment fitted at all.
 
     :param reheat_fraction: fraction of the solar duty sent to the reheater
+    :param pr_heat_in: superheater pressure ratio while it is in service
+    :param pr_reheater: reheater pressure ratio while it is in service
     """
-    heat_in_component.set_attr(Q=Q_to_steam * (1 - reheat_fraction))
-    reheater.set_attr(Q=Q_to_steam * reheat_fraction)
+    in_service = Q_to_steam > 0
+    heat_in_component.set_attr(Q=Q_to_steam * (1 - reheat_fraction),
+                               pr=pr_heat_in if in_service else 1.0)
+    reheater.set_attr(Q=Q_to_steam * reheat_fraction,
+                      pr=pr_reheater if in_service else 1.0)
     Steam_network.solve("design")
-    P_turbine =  -1 * (sum([i.P.val for i in turbine_list]))
+    P_turbine = -1 * (sum([i.P.val for i in turbine_list]))
     P_pumps = (sum([i.P.val for i in pump_list]))
     return P_turbine, P_pumps
 
@@ -275,7 +288,6 @@ T_oil_hot = 273.15 + 393         # field outlet, K (Therminol VP-1 upper limit)
 T_oil_from_storage = T_hot_salt - 5.0  # oil leaving the discharge HX, K
 M_MIN = 1.0                      # kg/s trickle flow kept in idle branches
 Q_MIN_BRANCH = 1e5               # W below which a branch counts as idle
-Q_MIN_SECONDARY = 1e6            # W trickle duty kept on the secondary cycle
 
 
 def solve_configuration2(
@@ -316,38 +328,50 @@ def solve_configuration2(
         eta_s_lp_turbine=0.873,
         eta_s_condensate_pump=0.804,
         eta_s_feed_pump=0.804,
-        # --- Nuclear condenser cooling water ---
+        # --- Topping/bottoming link: the nuclear condenser is the ORC boiler ---
+        pr_nuclear_condenser_orc=0.98,       # ORC-side pressure ratio
+        # --- Secondary (organic Rankine) cycle ---
+        secondary_fluid=orc_fluid,
+        p_evaporator_secondary=10.0e5,       # Pa, ORC evaporation pressure
+        p_hp_exhaust_secondary=4.5e5,        # Pa, ORC HP exhaust / reheat pressure
+        p_condenser_secondary=1.9e5,         # Pa, ORC backpressure
+        pr_orc_superheater=0.97,
+        pr_orc_reheater=0.97,
+        reheat_fraction=21.479 / (118.958 + 21.479),  # solar duty sent to the reheater
+        eta_s_hp_turbine_secondary=0.85,
+        eta_s_lp_turbine_secondary=0.85,
+        eta_s_feed_pump_secondary=0.80,
+        # --- ORC condenser cooling water ---
         T_cw_in=288.15,                      # K
         T_cw_out=300.15,                     # K
         p_cw=1.2e5,                          # Pa
-        # --- Topping/bottoming link: nuclear exhaust preheating CSP condensate ---
-        ttd_u_preheater=5.0,                 # K, approach on the preheat section
-        # --- Secondary (CSP) cycle live steam state ---
-        p_live_steam_secondary=105e5,        # Pa
-        T_live_steam_secondary=654.15,       # K
-        reheat_fraction=21.479 / (118.958 + 21.479),  # solar duty sent to the reheater
-        pr_secondary_sg=0.95,
-        # --- Secondary cycle extraction / exhaust pressures ---
-        p_hp_exhaust_secondary=20.72e5,      # Pa, HP exhaust / HP heater bleed
-        p_reheat_secondary=18.29e5,          # Pa, reheated steam into the LP turbine
-        p_lp_extraction_secondary=10.04e5,   # Pa, deaerator extraction
-        p_condenser_secondary=0.065e5,       # Pa, secondary backpressure
-        # --- Secondary cycle turbomachinery efficiencies ---
-        eta_s_hp_turbine_secondary=0.848,
-        eta_s_lp_turbine_secondary=0.916,
-        eta_s_condensate_pump_secondary=0.9,
-        eta_s_booster_pump=0.9,
-        eta_s_feed_pump_secondary=0.9,
-        # --- Secondary condenser cooling water ---
-        m_cw_secondary=2502.0,               # kg/s
-        T_cw_secondary=300.15,               # K
-        p_cw_secondary=1.2e5,                # Pa
         # --- Simulation window / output ---
         day_number=8,
         verbose=True,
         results_csv="ModelResults/configuration_2_hourly.csv",
 ):
-    """Solve configuration 2: nuclear topping cycle preheating a solar CSP cycle.
+    """Solve configuration 2: nuclear rejection heat boiling an organic bottoming cycle.
+
+    The two cycles are stacked rather than mixed. No solar heat touches the
+    nuclear steam at all - that is configuration 1 - and the nuclear cycle has no
+    cooling water of its own. Its LP turbine exhausts at a raised backpressure
+    into a condenser whose cold side IS the bottoming cycle: the organic fluid
+    preheats and boils on the nuclear rejection heat, and only the organic cycle
+    talks to the heat sink.
+
+        nuclear:  SG -> HP turbine -> MSR/reheat -> LP turbines -> condenser -+
+                   ^                                                          |
+                   +----------------- feedwater train <----------------------+
+
+        organic:  ORC feed pump -> [nuclear condenser, cold side] -> solar
+                  superheater -> ORC HP turbine -> solar reheater -> ORC LP
+                  turbine -> ORC condenser (cooling water) -> ORC feed pump
+
+    The solar field therefore lands on the top end of the ORC only. That is the
+    whole point of the configuration and also its weakness: it buys the ORC a
+    modest amount of superheat with 393 C oil, while the nuclear cycle pays for
+    the arrangement by running its LP turbine against ~1 bar instead of the
+    7 kPa vacuum it was designed for.
 
     Every argument is an operating condition that moves the cycle efficiency, so
     they can be swept without touching the network topology.
@@ -381,7 +405,7 @@ def solve_configuration2(
     o4 = Connection(solar_field, "out1", splitter_hot, "in1",
                     label=state(4, "solar field -> hot header splitter", mark=True))
     o5 = Connection(splitter_hot, "out1", merge_hot, "in1",
-                    label=state(5, "hot header -> steam generator (direct)"))
+                    label=state(5, "hot header -> ORC superheater + reheater (direct)"))
     o6 = Connection(splitter_hot, "out2", charge_hx_oil, "in1",
                     label=state(6, "hot header -> charge HX", mark=True))
     o7 = Connection(charge_hx_oil, "out1", merge_cold, "in2",
@@ -390,10 +414,13 @@ def solve_configuration2(
                     label=state(8, "cold header -> discharge HX", mark=True))
     o9 = Connection(discharge_hx_oil, "out1", merge_hot, "in2",
                     label=state(9, "discharge HX -> hot header", mark=True))
+    # The oil side of the solar heat injection. Here its duty goes to the top end
+    # of the organic bottoming cycle, so the labels name the ORC superheater and
+    # reheater rather than the nuclear steam generators.
     o10 = Connection(merge_hot, "out1", oil_side_sg, "in1",
-                     label=state(10, "hot header -> steam generator", mark=True))
+                     label=state(10, "hot header -> ORC superheater + reheater", mark=True))
     o11 = Connection(oil_side_sg, "out1", merge_cold, "in1",
-                     label=state(11, "steam generator -> cold header", mark=True))
+                     label=state(11, "ORC superheater + reheater -> cold header", mark=True))
     o12 = Connection(merge_cold, "out1", cycle_closer_oil, "in1",
                      label=state(12, "cold header merge -> closer"))
 
@@ -413,22 +440,15 @@ def solve_configuration2(
     # one as well would close a pressure loop and over-determine the network.
 
     # ---------------------------------------------------------------------------
-    # NETWORK 2 -- Steam Rankine cycle (power block)
-    # Physically separate fluid loop from the oil loop above. The two are
-    # linked ONLY by matching duty: steam_side_sg.Q = -oil_side_sg.Q each
-    # timestep (energy in = energy out, no shared TESPy connection since they
-    # are different fluids in different networks).
+    # NETWORK 2 -- Nuclear steam cycle + organic bottoming cycle
     #
-    # Andasol-1 regenerates feed water through three LP heaters, a deaerator and
-    # two HP heaters, reaching 250 C before the boiler. That train is lumped here
-    # into two open heaters: a deaerator on an LP extraction at 10.04 bar (180 C,
-    # the paper's deaerator state) and a second heater on the HP exhaust at
-    # 20.72 bar, which takes feed water to about 214 C. Without any regeneration
-    # the boiler would be fed at condenser temperature, which cannot be squared
-    # with an HTF loop that returns to the field at 293 C. Keeping the larger of
-    # the two extractions downstream of the reheater also matters: bleed it all off
-    # the HP exhaust instead and the reheater has so little steam to heat that its
-    # outlet comes out hotter than the 393 C oil supposedly heating it.
+    # Both cycles live in one TESPy network because they share a real component:
+    # the nuclear condenser condenses steam on its shell side and boils the
+    # organic fluid on its tube side, so the coupling is a genuine two-fluid heat
+    # exchanger rather than a matched duty.
+    #
+    # The oil loop is still coupled by duty only: the solar superheater and solar
+    # reheater on the ORC receive -oil_side_sg.Q each timestep.
     # ---------------------------------------------------------------------------
     SteamCycle = Network()
     SteamCycle.units.set_defaults(
@@ -442,10 +462,6 @@ def solve_configuration2(
     )
 
     working_fluid = {"water": 1}
-    secondary_fluid = {"water": 1}
-
-    cwso = Source("cooling water source")
-    cwsi = Sink("cooling water sink")
 
     cc = CycleCloser("cycle closer")
 
@@ -454,16 +470,14 @@ def solve_configuration2(
     steam_generator_1 = SimpleHeatExchanger("steam generator 1")
     steam_generator_2 = SimpleHeatExchanger("steam generator 2")
 
-    super_heater = SimpleHeatExchanger("super heater 0 : Solar input")
     feedwater_split = Splitter("feedwater splitter", num_out=2)
     main_steam_merge = Merge("main steam merge", num_in=2)
 
-    # Nuclear heat rejection is split in two. The preheat section hands a small duty
-    # to the secondary cycle's condensate; the main condenser dumps the remaining
-    # ~2 GW to cooling water. The secondary cycle can only absorb a fraction of a
-    # percent of the rejection, so it cannot be the only sink for it.
-    nuclear_preheater = HeatExchanger("nuclear preheat section")
-    main_condenser = Condenser("main condenser")
+    # The whole of the nuclear heat rejection goes into the bottoming cycle. There
+    # is no cooling water on the nuclear side: the organic fluid is the coolant,
+    # and a Condenser holds its own outlet at saturated liquid, so the duty is
+    # whatever it takes to condense the exhaust and the ORC mass flow follows.
+    nuclear_condenser = Condenser("nuclear condenser / ORC evaporator")
     condenser_merge = Merge("condenser merge", num_in=2)
     HP_turbine = MultiStageExtractionTurbine("HP turbine", num_stages=4)
 
@@ -473,8 +487,8 @@ def solve_configuration2(
 
     # Two-stage interstage reheat. Heater 2 is the low-temperature stage (fed by the
     # HP turbine stage-1 bleed), heater 1 the high-temperature stage (fed by main
-    # steam bled upstream of the HP turbine).
-    interstage_heater_0 = SimpleHeatExchanger("interstage heater 0 : Solar input")
+    # steam bled upstream of the HP turbine). Configuration 1 puts a solar reheater
+    # ahead of heater 1's shell; there is deliberately none here.
     interstage_heater_1 = HeatExchanger("interstage heater 1")
     interstage_heater_2 = HeatExchanger("interstage heater 2")
     interstage_heater_1_valve = Valve("interstage heater 1 drain valve")
@@ -531,106 +545,125 @@ def solve_configuration2(
     HP_FWH_valve_1 = Valve("HP FWH drain valve 1")
     HP_FWH_valve_2 = Valve("HP FWH drain valve 2")
 
-    s1 = Connection(cc, "out1", super_heater, "in1",
-                    label=state(1, "main steam header -> solar superheater", mark=True))
-
-    s1a = Connection(super_heater, "out1", main_steam_split, "in1",
-                     label=state(2, "solar superheated main steam", mark=True))
+    # Main steam leaves the header at the state the steam generators produce and
+    # goes straight to the turbine stop valves. Configuration 1 inserts a solar
+    # superheater here; the whole point of configuration 2 is that it does not.
+    s1 = Connection(cc, "out1", main_steam_split, "in1",
+                    label=state(1, "main steam header -> main steam splitter", mark=True))
     s1b = Connection(main_steam_split, "out1", HP_turbine, "in1",
-                     label=state(3, "main steam -> HP turbine inlet", mark=True))
-    s1c = Connection(main_steam_split, "out2", interstage_heater_0, "in1",
-                     label=state(4, "main steam bleed -> solar reheater", mark=True))
-    s1d = Connection(interstage_heater_0, "out1", interstage_heater_1, "in1",
-                     label=state(5, "solar reheater outlet -> reheat stage 1 shell", mark=True))
+                     label=state(2, "main steam -> HP turbine inlet", mark=True))
+    s1c = Connection(main_steam_split, "out2", interstage_heater_1, "in1",
+                     label=state(3, "main steam bleed -> reheat stage 1 shell", mark=True))
 
     # MultiStageExtrastionTurbine: out1 is after stage 1 (highest outlet P),
     # outN is the exhaust (lowest P). Stage i+1 uses out{i}'s (p, h) as its inlet.
+    s30 = Connection(HP_turbine, "out1", interstage_heater_2, "in1",
+                     label=state(4, "HP bleed 1 -> reheat stage 2 shell", mark=True))
+    s3 = Connection(HP_turbine, "out2", HP_FWH_2_shell_merge, "in1",
+                    label=state(5, "HP bleed 2 -> HP FWH 2 shell", mark=True))
+    s13 = Connection(HP_turbine, "out3", HP_FWH_M, "in2",
+                     label=state(6, "HP bleed 3 -> HP FWH 1 shell", mark=True))
     s2 = Connection(HP_turbine, "out4", moisture_separator, "in1",
-                    label=state(9, "HP turbine exhaust -> moisture separator", mark=True))
+                    label=state(7, "HP turbine exhaust -> moisture separator", mark=True))
 
     # DropletSeparator: out1 is the saturated liquid drain, out2 the saturated vapour
     # that goes on to the interstage reheaters and the LP turbine.
-    s2a = Connection(moisture_separator, "out2", interstage_heater_2, "in2",
-                     label=state(11, "separated vapour -> reheat stage 2", mark=True))
-    s2d = Connection(interstage_heater_2, "out2", interstage_heater_1, "in2",
-                     label=state(12, "reheat stage 2 outlet -> reheat stage 1"))
-    s2b = Connection(interstage_heater_1, "out2", LP_turbine_stg1, "in1",
-                     label=state(13, "reheated steam -> LP turbine inlet", mark=True))
     s2c = Connection(moisture_separator, "out1", MSR_FWH, "in1",
-                     label=state(10, "separator drain -> MSR drain cooler"))
+                     label=state(8, "separator drain -> MSR drain cooler"))
+    s2a = Connection(moisture_separator, "out2", interstage_heater_2, "in2",
+                     label=state(9, "separated vapour -> reheat stage 2", mark=True))
+    s2d = Connection(interstage_heater_2, "out2", interstage_heater_1, "in2",
+                     label=state(10, "reheat stage 2 outlet -> reheat stage 1"))
+    s2b = Connection(interstage_heater_1, "out2", LP_turbine_stg1, "in1",
+                     label=state(11, "reheated steam -> LP turbine inlet", mark=True))
 
-    # Interstage heater shell sides and their sascaded drains.
-    s30 = Connection(HP_turbine, "out1", interstage_heater_2, "in1",
-                     label=state(6, "HP bleed 1 -> reheat stage 2 shell", mark=True))
+    # LP expansion and the three LP bleeds.
+    s40 = Connection(LP_turbine_stg1, "out1", LP_FWH_2_merge, "in2",
+                     label=state(12, "LP bleed 1 -> LP FWH 2 shell", mark=True))
+    s41 = Connection(LP_turbine_stg1, "out2", LP_bleed_split_1, "in1",
+                     label=state(13, "LP stage 1 exhaust (LP bleed 2 pressure)", mark=True))
+    s42 = Connection(LP_bleed_split_1, "out1", LP_FWH_3_merge, "in2",
+                     label=state(14, "LP bleed 2 -> LP FWH 3 shell", mark=True))
+    s43 = Connection(LP_bleed_split_1, "out2", LP_turbine_stg2, "in1",
+                     label=state(15, "LP stage 1 exhaust -> LP turbine stage 2 inlet", mark=True))
+    s44 = Connection(LP_turbine_stg2, "out1", LP_bleed_split_2, "in1",
+                     label=state(16, "LP stage 2 exhaust (LP bleed 3 pressure)", mark=True))
+    s45 = Connection(LP_bleed_split_2, "out1", LP_FWH_4_merge, "in2",
+                     label=state(17, "LP bleed 3 -> LP FWH 4 shell", mark=True))
+    s46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1",
+                     label=state(18, "LP stage 2 exhaust -> LP turbine stage 3 inlet", mark=True))
+
+    s5 = Connection(LP_turbine_stg3, "out1", condenser_merge, "in1",
+                    label=state(19, "LP turbine exhaust (nuclear backpressure)", mark=True))
+    s6 = Connection(condenser_merge, "out1", nuclear_condenser, "in1",
+                    label=state(20, "nuclear exhaust -> nuclear condenser", mark=True))
+    s7 = Connection(nuclear_condenser, "out1", condensate_pump, "in1",
+                    label=state(21, "nuclear condensate -> condensate pump", mark=True))
+
+    # Feedwater climbs the LP train from the coldest heater upwards.
+    s8 = Connection(condensate_pump, "out1", LP_FWH_4, "in2",
+                    label=state(22, "condensate pump discharge -> LP FWH 4", mark=True))
+    s60 = Connection(LP_FWH_4, "out2", LP_FWH_3, "in2",
+                     label=state(23, "feedwater LP FWH 4 -> LP FWH 3"))
+    s61 = Connection(LP_FWH_3, "out2", LP_FWH_2, "in2",
+                     label=state(24, "feedwater LP FWH 3 -> LP FWH 2"))
+    s62 = Connection(LP_FWH_2, "out2", LP_FWH, "in2",
+                     label=state(25, "feedwater LP FWH 2 -> LP FWH 1"))
+    s9 = Connection(LP_FWH, "out2", MSR_FWH, "in2",
+                    label=state(26, "feedwater LP FWH 1 -> MSR drain FWH"))
+    s9a = Connection(MSR_FWH, "out2", HP_pump, "in1",
+                     label=state(27, "MSR drain FWH -> feed pump", mark=True))
+    s10 = Connection(HP_pump, "out1", HP_FWH_1, "in2",
+                     label=state(28, "feed pump discharge -> HP FWH 1", mark=True))
+    s11 = Connection(HP_FWH_1, "out2", HP_FWH_2, "in2",
+                     label=state(29, "feedwater HP FWH 1 -> HP FWH 2"))
+    s16 = Connection(HP_FWH_2, "out2", RH_FWH, "in2",
+                     label=state(30, "feedwater HP FWH 2 -> reheater drain FWH"))
+    s38 = Connection(RH_FWH, "out2", feedwater_split, "in1",
+                     label=state(31, "reheater drain FWH -> feedwater splitter", mark=True))
+    s39 = Connection(feedwater_split, "out1", steam_generator_1, "in1",
+                     label=state(32, "feedwater -> steam generator 1", mark=True))
+    s72 = Connection(feedwater_split, "out2", steam_generator_2, "in1",
+                     label=state(33, "feedwater -> steam generator 2", mark=True))
+    s73 = Connection(steam_generator_1, "out1", main_steam_merge, "in1",
+                     label=state(34, "steam generator 1 -> main steam header", mark=True))
+    s74 = Connection(steam_generator_2, "out1", main_steam_merge, "in2",
+                     label=state(35, "steam generator 2 -> main steam header", mark=True))
+    s0 = Connection(main_steam_merge, "out1", cc, "in1",
+                    label=state(36, "main steam header -> cycle closer"))
+
+    # Interstage heater shell sides and their cascaded drains.
     s31 = Connection(interstage_heater_1, "out1", interstage_heater_1_valve, "in1")
     s32 = Connection(interstage_heater_1_valve, "out1", interstage_drain_merge, "in1")
     s33 = Connection(interstage_heater_2, "out1", interstage_drain_merge, "in2")
     s34 = Connection(interstage_drain_merge, "out1", RH_FWH, "in1",
-                     label=state(40, "merged reheater drains -> reheater drain FWH shell"))
+                     label=state(37, "merged reheater drains -> reheater drain FWH shell"))
     s35 = Connection(RH_FWH, "out1", RH_FWH_valve, "in1")
     s36 = Connection(RH_FWH_valve, "out1", HP_FWH_2_shell_merge, "in2")
-
-    s3 = Connection(HP_turbine, "out2", HP_FWH_2_shell_merge, "in1",
-                    label=state(7, "HP bleed 2 -> HP FWH 2 shell", mark=True))
     s37 = Connection(HP_FWH_2_shell_merge, "out1", HP_FWH_2, "in1",
-                     label=state(41, "merged HP FWH 2 shell inlet"))
+                     label=state(38, "merged HP FWH 2 shell inlet"))
 
-    # LP expansion and the three LP bleeds.
-    s40 = Connection(LP_turbine_stg1, "out1", LP_FWH_2_merge, "in2",
-                     label=state(14, "LP bleed 1 -> LP FWH 2 shell", mark=True))
-    s41 = Connection(LP_turbine_stg1, "out2", LP_bleed_split_1, "in1",
-                     label=state(15, "LP stage 1 exhaust (LP bleed 2 pressure)", mark=True))
-    s42 = Connection(LP_bleed_split_1, "out1", LP_FWH_3_merge, "in2",
-                     label=state(16, "LP bleed 2 -> LP FWH 3 shell", mark=True))
-    s43 = Connection(LP_bleed_split_1, "out2", LP_turbine_stg2, "in1",
-                     label=state(17, "LP stage 1 exhaust -> LP turbine stage 2 inlet", mark=True))
-    s44 = Connection(LP_turbine_stg2, "out1", LP_bleed_split_2, "in1",
-                     label=state(18, "LP stage 2 exhaust (LP bleed 3 pressure)", mark=True))
-    s45 = Connection(LP_bleed_split_2, "out1", LP_FWH_4_merge, "in2",
-                     label=state(19, "LP bleed 3 -> LP FWH 4 shell", mark=True))
-    s46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1",
-                     label=state(20, "LP stage 2 exhaust -> LP turbine stage 3 inlet", mark=True))
+    s12 = Connection(HP_FWH_valve_2, "out1", HP_FWH_M, "in1")
+    s14 = Connection(HP_FWH_M, "out1", HP_FWH_1, "in1",
+                     label=state(39, "merged HP FWH 1 shell inlet"))
+    s15 = Connection(HP_FWH_1, "out1", HP_FWH_valve_1, "in1")
+    s17 = Connection(HP_FWH_2, "out1", HP_FWH_valve_2, "in1")
 
-    s5 = Connection(LP_turbine_stg3, "out1", condenser_merge, "in1",
-                    label=state(21, "LP turbine exhaust (nuclear backpressure)", mark=True))
-
-    s6 = Connection(condenser_merge, "out1", nuclear_preheater, "in1",
-                    label=state(22, "nuclear exhaust -> preheat section", mark=True))
-    s6b = Connection(nuclear_preheater, "out1", main_condenser, "in1",
-                     label=state(23, "preheat section outlet -> main condenser", mark=True))
-
-    s7 = Connection(main_condenser, "out1", condensate_pump, "in1",
-                    label=state(24, "condensate -> condensate pump", mark=True))
-
-    # Feedwater slimbs the LP train from the coldest heater upwards.
-    s8 = Connection(condensate_pump, "out1", LP_FWH_4, "in2",
-                    label=state(25, "condensate pump discharge -> LP FWH 4", mark=True))
-    s60 = Connection(LP_FWH_4, "out2", LP_FWH_3, "in2",
-                     label=state(26, "feedwater LP FWH 4 -> LP FWH 3"))
-    s61 = Connection(LP_FWH_3, "out2", LP_FWH_2, "in2",
-                     label=state(27, "feedwater LP FWH 3 -> LP FWH 2"))
-    s62 = Connection(LP_FWH_2, "out2", LP_FWH, "in2",
-                     label=state(28, "feedwater LP FWH 2 -> LP FWH 1"))
-    s9 = Connection(LP_FWH, "out2", MSR_FWH, "in2",
-                    label=state(29, "feedwater LP FWH 1 -> MSR drain FWH"))
-    s9a = Connection(MSR_FWH, "out2", HP_pump, "in1",
-                     label=state(30, "MSR drain FWH -> feed pump", mark=True))
-
-    # Cassaded LP shell drains: HP FWH 1 -> LP FWH 1 -> 2 -> 3 -> 4 -> sondenser.
+    # Cascaded LP shell drains: HP FWH 1 -> LP FWH 1 -> 2 -> 3 -> 4 -> condenser.
     s18 = Connection(HP_FWH_valve_1, "out1", LP_FWH, "in1",
-                     label=state(43, "HP FWH 1 drain -> LP FWH 1 shell"))
+                     label=state(40, "HP FWH 1 drain -> LP FWH 1 shell"))
     s19 = Connection(LP_FWH, "out1", LP_FWH_valve, "in1")
     s20 = Connection(LP_FWH_valve, "out1", LP_FWH_2_merge, "in1")
     s63 = Connection(LP_FWH_2_merge, "out1", LP_FWH_2, "in1",
-                     label=state(44, "merged LP FWH 2 shell inlet"))
+                     label=state(41, "merged LP FWH 2 shell inlet"))
     s64 = Connection(LP_FWH_2, "out1", LP_FWH_2_valve, "in1")
     s65 = Connection(LP_FWH_2_valve, "out1", LP_FWH_3_merge, "in1")
     s66 = Connection(LP_FWH_3_merge, "out1", LP_FWH_3, "in1",
-                     label=state(45, "merged LP FWH 3 shell inlet"))
+                     label=state(42, "merged LP FWH 3 shell inlet"))
     s67 = Connection(LP_FWH_3, "out1", LP_FWH_3_valve, "in1")
     s68 = Connection(LP_FWH_3_valve, "out1", LP_FWH_4_merge, "in1")
     s69 = Connection(LP_FWH_4_merge, "out1", LP_FWH_4, "in1",
-                     label=state(46, "merged LP FWH 4 shell inlet"))
+                     label=state(43, "merged LP FWH 4 shell inlet"))
     s70 = Connection(LP_FWH_4, "out1", LP_FWH_4_valve, "in1")
     s71 = Connection(LP_FWH_4_valve, "out1", condenser_merge, "in2")
 
@@ -640,53 +673,6 @@ def solve_configuration2(
     s21 = Connection(MSR_FWH, "out1", MSR_FWH_valve, "in1")
     s22 = Connection(MSR_FWH_valve, "out1", LP_FWH_2_merge, "in3")
 
-    s10 = Connection(HP_pump, "out1", HP_FWH_1, "in2",
-                     label=state(31, "feed pump discharge -> HP FWH 1", mark=True))
-
-    s11 = Connection(HP_FWH_1, "out2", HP_FWH_2, "in2",
-                     label=state(32, "feedwater HP FWH 1 -> HP FWH 2"))
-
-    s12 = Connection(HP_FWH_valve_2, "out1", HP_FWH_M, "in1")
-    s13 = Connection(HP_turbine, "out3", HP_FWH_M, "in2",
-                     label=state(8, "HP bleed 3 -> HP FWH 1 shell", mark=True))
-
-    s14 = Connection(HP_FWH_M, "out1", HP_FWH_1, "in1",
-                     label=state(42, "merged HP FWH 1 shell inlet"))
-    s15 = Connection(HP_FWH_1, "out1", HP_FWH_valve_1, "in1")
-
-    s16 = Connection(HP_FWH_2, "out2", RH_FWH, "in2",
-                     label=state(33, "feedwater HP FWH 2 -> reheater drain FWH"))
-    s38 = Connection(RH_FWH, "out2", feedwater_split, "in1",
-                     label=state(34, "reheater drain FWH -> feedwater splitter", mark=True))
-
-    s17 = Connection(HP_FWH_2, "out1", HP_FWH_valve_2, "in1")
-
-    s39 = Connection(feedwater_split, "out1", steam_generator_1, "in1",
-                     label=state(35, "feedwater -> steam generator 1", mark=True))
-    s72 = Connection(feedwater_split, "out2", steam_generator_2, "in1",
-                     label=state(36, "feedwater -> steam generator 2", mark=True))
-    s73 = Connection(steam_generator_1, "out1", main_steam_merge, "in1",
-                     label=state(37, "steam generator 1 -> main steam header", mark=True))
-    s74 = Connection(steam_generator_2, "out1", main_steam_merge, "in2",
-                     label=state(38, "steam generator 2 -> main steam header", mark=True))
-
-    s0 = Connection(main_steam_merge, "out1", cc, "in1",
-                    label=state(39, "main steam header -> cycle closer"))
-
-    # Condenser cooling connections
-    s1_1 = Connection(cwso, "out1", main_condenser, "in2",
-                      label=state(47, "nuclear cooling water in"))
-    s1_2 = Connection(main_condenser, "out2", cwsi, "in1",
-                      label=state(48, "nuclear cooling water out"))
-
-    main_condenser.set_attr(pr1=1, pr2=0.98)
-
-    # The preheat section is the link between the two cycles. Its hot side is the
-    # nuclear exhaust condensing isothermally at 1 bar (372.8 K), so ttd_u pins the
-    # secondary condensate outlet 5 K below that and the duty follows from the
-    # secondary mass flow.
-    nuclear_preheater.set_attr(ttd_u=ttd_u_preheater, pr1=1, pr2=0.98)
-
     # Each steam generator carries its DCD rating of 1707 MWt, so the total NSSS heat
     # input is 3414 MWt and the main steam flow follows from the two duties. Only one
     # of the two shells may carry a pressure spec: both outlets are pinned to the main
@@ -694,13 +680,6 @@ def solve_configuration2(
     # with it and leave the Jacobian singular.
     steam_generator_1.set_attr(pr=pr_steam_generator, Q=steam_generator_duty)
     steam_generator_2.set_attr(Q=steam_generator_duty)
-
-    # In configuration 2 the solar heat goes to the secondary cycle's own steam
-    # generator and reheater, not into the nuclear steam. These two are the
-    # configuration 1 injection points and are inert here, but they still need a
-    # duty or the nuclear side is under-determined.
-    super_heater.set_attr(pr=0.97, Q=0)
-    interstage_heater_0.set_attr(pr=0.97, Q=0)
 
     # Isentropic efficiencies are the DCD-consistent values that land the shaft output
     # at 1200 MW: the wet LP stages run well below dry-expansion efficiency.
@@ -712,8 +691,8 @@ def solve_configuration2(
     LP_turbine_stg2.set_attr(eta_s=eta_s_lp_turbine)
     LP_turbine_stg3.set_attr(eta_s=eta_s_lp_turbine)
 
-    # Interstage heaters. Each shell condenses to x=0 (set on c31/c33) and each cold
-    # outlet temperature is fixed (c2d, c2b), so the bleed mass flows follow from the
+    # Interstage heaters. Each shell condenses to x=0 (set on s31/s33) and each cold
+    # outlet temperature is fixed (s2d, s2b), so the bleed mass flows follow from the
     # two energy balances. No ttd spec belongs here: the cold outlet temperature
     # already occupies that degree of freedom. pr2=0.98 per stage lands the LP inlet
     # at 1.088 MPa, inside the DCD's 1.073-1.096 MPa band.
@@ -745,8 +724,8 @@ def solve_configuration2(
     condensate_pump.set_attr(eta_s=eta_s_condensate_pump)
 
     # LP FWH 1 carries the whole HP FWH 1 drain, and that flow is already fixed
-    # upstream. Its duty is therefore not free: x=0 on c19 closes the shell side and
-    # the feedwater rise on c9 is the result. A ttd spec here would demand a duty
+    # upstream. Its duty is therefore not free: x=0 on s19 closes the shell side and
+    # the feedwater rise on s9 is the result. A ttd spec here would demand a duty
     # roughly twice what the drain can supply.
     LP_FWH.set_attr(pr1=0.97, pr2=0.97)
 
@@ -769,19 +748,14 @@ def solve_configuration2(
 
     HP_pump.set_attr(eta_s=eta_s_feed_pump)
 
-    # Main condenser cooling water. The mass flow follows from whatever duty is left
-    # after the preheat section has taken its share.
-    s1_1.set_attr(T=T_cw_in, p=p_cw, fluid=cooling_fluid)
-    s1_2.set_attr(T=T_cw_out)
-
     # Main steam, DCD Fig 10.1-1: 808 psia / 1197.6 BTU/lb. The flow follows from the
     # two steam generator duties, so only a start value is given here.
     s1.set_attr(p=p_main_steam, h=h_main_steam, m0=1891, fluid=working_fluid)
     s1b.set_attr(m0=1824, h0=2.786e6)  # main steam -> HP turbine
-    s1c.set_attr(m0=66, h0=2.786e6)  # main steam bleed -> interstage heater 1
+    s1c.set_attr(m0=66, h0=2.786e6)  # main steam bleed -> reheat stage 1 shell
 
     # HP turbine outlets: pressures fall along the stage order out1 -> ... -> out4.
-    # Extrastion masses are results of each heater's ttd_u. c13 sits at 2.0 MPa so
+    # Extrastion masses are results of each heater's ttd_u. s13 sits at 2.0 MPa so
     # that Tsat = 485.5 K supports the DCD's 478 K feedwater point ahead of the
     # final heater, and s3 at 2.83 MPa (Tsat = 503.6 K) the 500.9 K SG inlet.
     s2.set_attr(p=p_hp_exhaust, m0=1388, h0=2.55e6)  # HP exhaust -> moisture separator
@@ -818,11 +792,11 @@ def solve_configuration2(
     s46.set_attr(m0=1006, h0=2.660e6)
 
     # Condenser backpressure, raised from the DCD's 7 kPa so that the nuclear cycle
-    # condenses at 372.8 K and can actually preheat the secondary cycle. This costs
-    # the nuclear turbine a large slice of its LP expansion, which is the whole
-    # trade this configuration exists to quantify.
+    # condenses at 372.8 K and can actually boil the organic fluid. This costs the
+    # nuclear turbine a large slice of its LP expansion, which is the whole trade
+    # this configuration exists to quantify.
     s5.set_attr(p=p_nuclear_condenser, m0=1006, h0=2.600e6)  # LP turbine exhaust
-    s6b.set_attr(m0=1890, h0=4.15e5)
+    s6.set_attr(m0=1890, h0=2.55e6)
 
     # Feedwater now starts from 373 K condensate rather than 312 K, so every start
     # enthalpy along the LP train moves up with it.
@@ -873,126 +847,95 @@ def solve_configuration2(
     s22.set_attr(m0=172, h0=6.194e5)
 
     ##############################################
-    #Secondary Organic Rankine Cycle             #
+    # Secondary Organic Rankine Cycle            #
     ##############################################
-    cycle_closer_steam = CycleCloser("Steam Cycle Closer")
-    steam_side_sg = SimpleHeatExchanger("Steam Generator (steam side)")
-    HP_turbine_secondary = SteamTurbine("HP Turbine")
-    hp_extraction = Splitter("HP exhaust extraction", num_out=2)
-    steam_side_reheater = SimpleHeatExchanger("Reheater")
-    LP_turbine_1 = SteamTurbine("LP Turbine (to extraction)")
-    lp_extraction = Splitter("LP extraction", num_out=2)
-    LP_turbine_2 = SteamTurbine("LP Turbine (to condenser)")
-    condenser_secondary = Condenser("Condenser secondary")
-    condensate_pump_secondary\
-        = Pump("Condensate Pump")
-    deaerator = Merge("Deaerator", num_in=2)
-    booster_pump = Pump("Booster Pump")
-    hp_heater = Merge("HP Feed Water Heater", num_in=2)
-    feed_pump = Pump("Feed Water Pump")
+    # The nuclear condenser is this cycle's boiler, so there is no separate
+    # evaporator and no feedwater heating: every degree of regeneration would only
+    # push the organic fluid into the nuclear condenser hotter and shrink the
+    # amount of rejection heat it can absorb. Solar heat lands on the superheater
+    # and the reheater, which are the only two high-temperature components here.
+    cycle_closer_secondary = CycleCloser("ORC Cycle Closer")
+    orc_superheater = SimpleHeatExchanger("ORC superheater : Solar input")
+    orc_reheater = SimpleHeatExchanger("ORC reheater : Solar input")
+    HP_turbine_secondary = Turbine("ORC HP Turbine")
+    LP_turbine_secondary = Turbine("ORC LP Turbine")
+    condenser_secondary = Condenser("ORC condenser")
+    feed_pump_secondary = Pump("ORC feed pump")
     cooling_water_in = Source("Cooling water in")
     cooling_water_out = Sink("Cooling water out")
 
-    c1 = Connection(cycle_closer_steam, "out1", steam_side_sg, "in1",
-                    label=state(49, "secondary feedwater -> solar steam generator", mark=True))
-    c2 = Connection(steam_side_sg, "out1", HP_turbine_secondary, "in1",
-                    label=state(50, "secondary live steam -> HP turbine inlet", mark=True))
-    c3 = Connection(HP_turbine_secondary, "out1", hp_extraction, "in1",
-                    label=state(51, "secondary HP exhaust (HP heater bleed pressure)", mark=True))
-    c4 = Connection(hp_extraction, "out1", steam_side_reheater, "in1",
-                    label=state(52, "secondary HP exhaust -> solar reheater", mark=True))
-    c5 = Connection(steam_side_reheater, "out1", LP_turbine_1, "in1",
-                    label=state(53, "secondary reheated steam -> LP turbine inlet", mark=True))
-    c6 = Connection(LP_turbine_1, "out1", lp_extraction, "in1",
-                    label=state(54, "secondary LP extraction point (deaerator pressure)", mark=True))
-    c7 = Connection(lp_extraction, "out1", LP_turbine_2, "in1",
-                    label=state(55, "secondary LP stage 1 -> LP stage 2 inlet", mark=True))
-    c8 = Connection(LP_turbine_2, "out1", condenser_secondary, "in1",
-                    label=state(56, "secondary LP exhaust (condenser backpressure)", mark=True))
-    c9 = Connection(condenser_secondary, "out1",  condensate_pump_secondary, "in1",
-                    label=state(57, "secondary condensate -> condensate pump", mark=True))
-    # The nuclear preheat has to sit at the coldest point of the secondary cycle:
-    # anywhere downstream of the deaerator the water is already hotter than the
-    # 372.8 K nuclear condensate and no heat would flow.
-    c10 = Connection(condensate_pump_secondary, "out1", nuclear_preheater, "in2",
-                     label=state(58, "secondary condensate -> nuclear preheat section", mark=True))
-    c10a = Connection(nuclear_preheater, "out2", deaerator, "in1",
-                      label=state(59, "nuclear-preheated condensate -> deaerator", mark=True))
-    c11 = Connection(lp_extraction, "out2", deaerator, "in2",
-                     label=state(60, "secondary LP extraction -> deaerator"))
-    c12 = Connection(deaerator, "out1", booster_pump, "in1",
-                     label=state(61, "secondary deaerator outlet -> booster pump"))
-    c13 = Connection(booster_pump, "out1", hp_heater, "in1",
-                     label=state(62, "secondary booster pump -> HP heater"))
-    c14 = Connection(hp_extraction, "out2", hp_heater, "in2",
-                     label=state(63, "secondary HP extraction -> HP heater"))
-    c15 = Connection(hp_heater, "out1", feed_pump, "in1",
-                     label=state(64, "secondary HP heater outlet -> feed pump"))
-    c16 = Connection(feed_pump, "out1", cycle_closer_steam, "in1",
-                     label=state(65, "secondary feed pump discharge"))
-    c17 = Connection(cooling_water_in, "out1", condenser_secondary, "in2",
-                     label=state(66, "secondary cooling water in"))
-    c18 = Connection(condenser_secondary, "out2", cooling_water_out, "in1",
-                     label=state(67, "secondary cooling water out"))
+    c1 = Connection(cycle_closer_secondary, "out1", nuclear_condenser, "in2",
+                    label=state(44, "ORC feed -> nuclear condenser (cold side)", mark=True))
+    c2 = Connection(nuclear_condenser, "out2", orc_superheater, "in1",
+                    label=state(45, "saturated ORC vapour -> solar superheater", mark=True))
+    c3 = Connection(orc_superheater, "out1", HP_turbine_secondary, "in1",
+                    label=state(46, "solar superheater -> ORC HP turbine inlet", mark=True))
+    c4 = Connection(HP_turbine_secondary, "out1", orc_reheater, "in1",
+                    label=state(47, "ORC HP exhaust -> solar reheater", mark=True))
+    c5 = Connection(orc_reheater, "out1", LP_turbine_secondary, "in1",
+                    label=state(48, "solar reheater -> ORC LP turbine inlet", mark=True))
+    c6 = Connection(LP_turbine_secondary, "out1", condenser_secondary, "in1",
+                    label=state(49, "ORC LP exhaust (ORC backpressure)", mark=True))
+    c7 = Connection(condenser_secondary, "out1", feed_pump_secondary, "in1",
+                    label=state(50, "ORC condensate -> ORC feed pump", mark=True))
+    c8 = Connection(feed_pump_secondary, "out1", cycle_closer_secondary, "in1",
+                    label=state(51, "ORC feed pump discharge"))
+    c9 = Connection(cooling_water_in, "out1", condenser_secondary, "in2",
+                    label=state(52, "ORC cooling water in"))
+    c10 = Connection(condenser_secondary, "out2", cooling_water_out, "in1",
+                     label=state(53, "ORC cooling water out"))
 
-    SteamCycle.add_conns(c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c10a,
-                         c11, c12, c13, c14, c15, c16, c17, c18)
-
-    HP_turbine_secondary.set_attr(eta_s=eta_s_hp_turbine_secondary)
-    LP_turbine_1.set_attr(eta_s=eta_s_lp_turbine_secondary)
-    LP_turbine_2.set_attr(eta_s=eta_s_lp_turbine_secondary)
-    steam_side_sg.set_attr(pr=pr_secondary_sg)
-    condensate_pump_secondary.set_attr(eta_s=eta_s_condensate_pump_secondary)
-    booster_pump.set_attr(eta_s=eta_s_booster_pump)
-    feed_pump.set_attr(eta_s=eta_s_feed_pump_secondary)
-
-    # The secondary condenser had no pressure specs at all, so neither its
-    # condensate pressure nor its cooling water outlet pressure was reachable.
+    # The nuclear condenser is the only place the two cycles touch. Its shell side
+    # holds saturated liquid by construction (Condenser, subcooling off), so the
+    # duty is whatever it takes to condense the whole nuclear exhaust. Saturated
+    # vapour on the tube side (x=1 on c2) then fixes the ORC mass flow: it is
+    # exactly the flow that the rejected heat can boil, nothing more.
+    nuclear_condenser.set_attr(pr1=1, pr2=pr_nuclear_condenser_orc)
     condenser_secondary.set_attr(pr1=1, pr2=0.98)
 
-    # The reheater gets no pr: c3 pins the splitter outlet at 20.72 bar and c5 pins
-    # its own outlet at 18.29 bar, so both ends are already fixed and a pr equation
-    # would close a pressure loop. Its duty comes from the oil loop per timestep.
+    HP_turbine_secondary.set_attr(eta_s=eta_s_hp_turbine_secondary)
+    LP_turbine_secondary.set_attr(eta_s=eta_s_lp_turbine_secondary)
+    feed_pump_secondary.set_attr(eta_s=eta_s_feed_pump_secondary)
 
-    # Live steam state is held fixed; the steam mass flow is what follows from the
-    # duty handed over by the oil loop, so it must NOT be fixed here as well.
-    c2.set_attr(fluid=secondary_fluid, p=p_live_steam_secondary, T=T_live_steam_secondary)
-    c3.set_attr(p=p_hp_exhaust_secondary)
+    # Evaporation pressure has to keep Tsat below the nuclear condensing
+    # temperature or no heat crosses the exchanger at all: 10 bar puts R245fa at
+    # 362.9 K against steam condensing at 372.8 K, i.e. a 10 K pinch. This is the
+    # single most important knob in the configuration.
+    c2.set_attr(fluid=secondary_fluid, p=p_evaporator_secondary, x=1, m0=11000)
+    c3.set_attr(m0=11000)
+    c4.set_attr(p=p_hp_exhaust_secondary, m0=11000)
+    c5.set_attr(m0=11000)
+    c6.set_attr(p=p_condenser_secondary, m0=11000)
+    c7.set_attr(m0=11000)
+    c8.set_attr(m0=11000)
 
-    # Reheat outlet temperature ic free: the reheater duty is set per timestep from
-    # the oil-cide duty split, and fixing both would over-determine the reheater.
-    c5.set_attr(p=p_reheat_secondary)
-    c6.set_attr(p=p_lp_extraction_secondary)
-    c8.set_attr(p=p_condenser_secondary)
-
-    # Saturated liquid out of each open heater is what sizes its extraction: the
-    # solver picks the bled steam flow that exactly saturates the feed water.
-    c12.set_attr(x=0)
-    c15.set_attr(x=0)
-
-    c17.set_attr(fluid=cooling_fluid, m=m_cw_secondary, T=T_cw_secondary, p=p_cw_secondary)
+    # The rejection is a couple of GW, so the cooling water flow is a result of the
+    # duty rather than something worth guessing: both terminal temperatures are
+    # fixed and the flow follows.
+    c9.set_attr(fluid=cooling_fluid, T=T_cw_in, p=p_cw, m0=50000)
+    c10.set_attr(T=T_cw_out)
 
     SteamCycle.add_conns(
-        s1, s1a, s1b, s1c, s1d, s2, s2a, s2b, s2c, s2d, s3, s5,
+        s0, s1, s1b, s1c, s2, s2a, s2b, s2c, s2d, s3, s5,
         s6, s7, s8, s9, s9a, s10, s11, s12, s13, s14, s15,
-        s16, s17, s18, s19, s20, s21, s22, s0, s1_1, s1_2, s6b,
+        s16, s17, s18, s19, s20, s21, s22,
         s30, s31, s32, s33, s34, s35, s36, s37, s38, s39,
         s40, s41, s42, s43, s44, s45, s46,
         s60, s61, s62, s63, s64, s65, s66, s67, s68, s69, s70, s71,
-        s72, s73, s74
+        s72, s73, s74,
+        c1, c2, c3, c4, c5, c6, c7, c8, c9, c10,
     )
 
     trim_results(OilLoop, SteamCycle)
 
     # Both cycles are on the same shaft-count for accounting purposes: the nuclear
-    # turbines plus the secondary CSP turbines, and every pump in either loop.
+    # turbines plus the ORC turbines, and every pump in either loop.
     turbine_list = [
         HP_turbine, LP_turbine_stg1, LP_turbine_stg2, LP_turbine_stg3,
-        HP_turbine_secondary, LP_turbine_1, LP_turbine_2,
+        HP_turbine_secondary, LP_turbine_secondary,
     ]
     pump_list = [
-        condensate_pump, HP_pump,
-        condensate_pump_secondary, booster_pump, feed_pump,
+        condensate_pump, HP_pump, feed_pump_secondary,
     ]
 
     oil_conns = [o3, o4, o6, o7, o8, o9]
@@ -1009,8 +952,9 @@ def solve_configuration2(
         OilLoop=OilLoop, oil_sg=oil_side_sg,
     )
     P_turbine_design, P_pumps_design = solve_power_block(
-        Q_to_steam_design, steam_side_sg, steam_side_reheater,
+        Q_to_steam_design, orc_superheater, orc_reheater,
         SteamCycle, turbine_list, pump_list, reheat_fraction=reheat_fraction,
+        pr_heat_in=pr_orc_superheater, pr_reheater=pr_orc_reheater,
     )
 
     # ---------------------------------------------------------------------------
@@ -1043,19 +987,18 @@ def solve_configuration2(
             OilLoop=OilLoop, oil_sg=oil_side_sg,
         )
 
-        # --- Steam cycle side ---
-        # Matched duty: exactly what the oil side gave up, the steam side
-        # receives. This is the only coupling between the two networks.
-        # The nuclear side runs whatever the sun is doing, so the block is always
-        # solved. The secondary cycle cannot be solved at exactly zero flow, so when
-        # there is no solar heat its duty is floored at a trickle rather than zeroed
-        # - the same device the oil loop uses for its idle branches.
+        # --- Power block side ---
+        # Unlike configuration 1 the bottoming cycle is not driven by the sun: it
+        # is driven by the nuclear rejection heat, which never stops. The ORC
+        # therefore runs at full flow all night with its superheater and reheater
+        # simply switched out, and no trickle duty is needed to keep it solvable.
         if step["Q_to_pb"] <= 0 or Q_to_steam <= Q_MIN_BRANCH:
             Q_to_steam = 0.0
 
         P_turbine, P_pumps = solve_power_block(
-            max(Q_to_steam, Q_MIN_SECONDARY), steam_side_sg, steam_side_reheater,
+            Q_to_steam, orc_superheater, orc_reheater,
             SteamCycle, turbine_list, pump_list, reheat_fraction=reheat_fraction,
+            pr_heat_in=pr_orc_superheater, pr_reheater=pr_orc_reheater,
         )
         m_steam = s2.m.val
 
@@ -1067,8 +1010,12 @@ def solve_configuration2(
         step["m_oil_field"] = o3.m.val
         step["T_sg_oil_in"] = o10.T.val
         step["m_steam"] = m_steam
-        step["m_steam_secondary"] = c2.m.val
-        step["Q_preheat"] = -nuclear_preheater.Q.val
+        step["m_orc"] = c1.m.val
+        # Heat handed from the topping cycle to the bottoming cycle, and the heat
+        # the bottoming cycle finally throws away to the cooling water.
+        step["Q_nuclear_condenser"] = -nuclear_condenser.Q.val
+        step["Q_orc_condenser"] = -condenser_secondary.Q.val
+        step["T_orc_live"] = c3.T.val
         step["P_turbine"] = P_turbine
         step["P_pumps"] = P_pumps + htf_pump.P.val
         step["P_net"] = P_turbine - step["P_pumps"]
@@ -1082,6 +1029,38 @@ def solve_configuration2(
             print(f"Turbine power: {step["P_turbine"]}")
             print(f"Pump power: {step["P_pumps"]}")
             print(f"Efficiency: {step["efficiency"]}")
+
+            print(Style.BRIGHT + Fore.MAGENTA + """\n\n\n\n
+                            ###########################################################################################
+                            #                                                                                         #
+                            #                                Steam Cycle                                              #
+                            #                                                                                         #
+                            ###########################################################################################
+                            """)
+            SteamCycle.print_results()
+            print(Style.BRIGHT + Fore.MAGENTA + """\n\n\n\n
+                            ###########################################################################################
+                            #                                                                                         #
+                            #                                Steam Cycle                                              #
+                            #                                                                                         #
+                            ###########################################################################################
+                            """)
+
+            print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
+                                    ###########################################################################################
+                                    #                                                                                         #
+                                    #                                Oil loop                                                 #
+                                    #                                                                                         #
+                                    ###########################################################################################
+                                    """)
+            OilLoop.print_results()
+            print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
+                                    ###########################################################################################
+                                    #                                                                                         #
+                                    #                                Oil loop                                              #
+                                    #                                                                                         #
+                                    ###########################################################################################
+                                    """)
 
     results = pd.DataFrame(log)
     if results_csv is not None:

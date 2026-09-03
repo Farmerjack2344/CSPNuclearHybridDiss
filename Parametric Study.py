@@ -1,6 +1,5 @@
 from Configuration_1 import solve_configuration1
 from Configuration_2 import solve_configuration2
 
-
 solve_configuration1()
 solve_configuration2()

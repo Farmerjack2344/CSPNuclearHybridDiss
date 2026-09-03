@@ -23,24 +23,10 @@ def highlight(text):
 
 
 def state(number, text, mark=False):
-    """Label a connection with its position along the flow path.
-
-    TESPy indexes its results table by connection label and sorts that index, so
-    the zero padded number is what makes the printout come out in order of
-    occurrence. The number has to sit outside the colour codes: an escape
-    sequence at the front of a label sorts ahead of every digit, which is why the
-    highlighted connections used to collect at the top of the table.
-    """
     return f"{number:02d} {highlight(text) if mark else text}"
 
 
 def trim_results(*networks):
-    """Keep the valves and the drain plumbing out of the results printout.
-
-    Every connection worth reading was given a number by :func:`state`. What is
-    left over is the valve inlets and the shell drains entering the cascade
-    merges, whose states are already visible on the component either side.
-    """
     for network in networks:
         for conn in network.conns["object"]:
             if not conn.label[0].isdigit():
@@ -162,14 +148,25 @@ def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage, oil_conns,
     return max(-oil_sg.Q.val, 0.0)
 
 
-def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network, turbine_list, pump_list, reheat_fraction=0.2):
+def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network, turbine_list, pump_list,
+                      reheat_fraction=0.2, pr_heat_in=1.0, pr_reheater=1.0):
     """Solve the steam cycle against the duty the HTF loop gave up.
 
     Returns gross turbine output and the feed water pumping parasitics, both W.
+
+    When there is no heat for the oil to give to the steam the pressure ratio is set to 0.
+    So that the Solar super heater and the SOlar reheater dont represent losses and times
+    of CSP shutdown
+
     :param reheat_fraction: percentage of oil bled away to reheat
+    :param pr_heat_in: superheater pressure ratio while it is in service
+    :param pr_reheater: reheater pressure ratio while it is in service
     """
-    heat_in_component.set_attr(Q=Q_to_steam * (1 - reheat_fraction))
-    reheater.set_attr(Q=Q_to_steam * reheat_fraction)
+    in_service = Q_to_steam > 0
+    heat_in_component.set_attr(Q=Q_to_steam * (1 - reheat_fraction),
+                               pr=pr_heat_in if in_service else 1.0)
+    reheater.set_attr(Q=Q_to_steam * reheat_fraction,
+                      pr=pr_reheater if in_service else 1.0)
     Steam_network.solve("design")
     P_turbine =  -1 * (sum([i.P.val for i in turbine_list]))
     P_pumps = (sum([i.P.val for i in pump_list]))
@@ -230,25 +227,24 @@ T_oil_from_storage = T_hot_salt - 5.0  # oil leaving the discharge HX, K
 M_MIN = 1.0                      # kg/s trickle flow kept in idle branches
 Q_MIN_BRANCH = 1e5               # W below which a branch counts as idle
 
-rankine_cycle_fluid = {"water": 1}
+
 cooling_fluid = {"water": 1}
 oil_fluid = {"INCOMP::TVP1": 1}
+working_fluid = {"water": 1}
+fluids = [working_fluid,cooling_fluid, oil_fluid]
 def solve_configuration1(
+        fluids=fluids,
         # --- HTF loop operating states ---
         T_field_out=T_oil_hot,               # K, oil leaving the solar field
         T_cold_header=T_oil_cold,            # K, oil returned to the field / SG outlet
         T_discharge_out=T_oil_from_storage,  # K, oil leaving the discharge HX
         p_cold_header=28e5,                  # Pa, HTF pump discharge pressure
-        eta_s_htf_pump=0.8,
-        pr_solar_field=0.65,
-        pr_oil_sg=0.95,
+
+
         # --- Solar heat injection into the nuclear steam ---
         reheat_fraction=21.479 / (118.958 + 21.479),  # solar duty sent to the reheater
-        pr_solar_superheater=0.97,
-        pr_solar_reheater=0.97,
-        # --- Nuclear heat input ---
-        steam_generator_duty=1707e6,         # W per steam generator (two fitted)
-        pr_steam_generator=0.97,
+
+
         # --- Live steam state ---
         p_main_steam=5.571e6,                # Pa
         h_main_steam=2785.6e3,               # J/kg
@@ -270,11 +266,7 @@ def solve_configuration1(
         p_lp_fwh_1_shell=0.60e6,             # Pa, top LP heater shell pressure
         ttd_u_fwh=5.0,                       # K, terminal temperature difference (condensing heaters)
         ttd_l_drain_cooler=5.0,              # K, terminal temperature difference (drain coolers)
-        # --- Turbomachinery efficiencies ---
-        eta_s_hp_turbine=0.84,
-        eta_s_lp_turbine=0.873,
-        eta_s_condensate_pump=0.804,
-        eta_s_feed_pump=0.804,
+
         # --- Condenser cooling water ---
         T_cw_in=288.15,                      # K
         T_cw_out=300.15,                     # K
@@ -285,9 +277,26 @@ def solve_configuration1(
         results_csv="ModelResults/configuration_1_hourly.csv",
 ):
     """Solve configuration 1: solar heat injected into the nuclear steam cycle.
+    :param fluids:
 
 
     """
+    # --- Turbomachinery efficiencies ---
+    eta_s_hp_turbine = 0.84
+    eta_s_lp_turbine = 0.873
+    eta_s_condensate_pump = 0.804
+    eta_s_feed_pump = 0.804
+
+    # --- Nuclear heat input ---
+    steam_generator_duty = 1707e6  # W per steam generator (two fitted)
+    pr_steam_generator = 0.97
+
+    eta_s_htf_pump = 0.8
+    pr_solar_field = 0.65
+    pr_solar_superheater = 0.97,
+    pr_solar_reheater = 0.97,
+    pr_oil_sg = 0.95,
+
     OilLoop = Network()
     OilLoop.units.set_defaults(
         temperature="K", pressure="Pa", pressure_difference="Pa",
@@ -315,7 +324,7 @@ def solve_configuration1(
     o4 = Connection(solar_field, "out1", splitter_hot, "in1",
                     label=state(4, "solar field -> hot header splitter", mark=True))
     o5 = Connection(splitter_hot, "out1", merge_hot, "in1",
-                    label=state(5, "hot header -> steam generator (direct)"))
+                    label=state(5, "hot header -> solar superheater + reheater (direct)"))
     o6 = Connection(splitter_hot, "out2", charge_hx_oil, "in1",
                     label=state(6, "hot header -> charge HX", mark=True))
     o7 = Connection(charge_hx_oil, "out1", merge_cold, "in2",
@@ -324,10 +333,13 @@ def solve_configuration1(
                     label=state(8, "cold header -> discharge HX", mark=True))
     o9 = Connection(discharge_hx_oil, "out1", merge_hot, "in2",
                     label=state(9, "discharge HX -> hot header", mark=True))
+    # The oil side of the solar heat injection. Its duty is handed to the steam
+    # cycle's solar superheater and solar reheater, so the labels name those two
+    # rather than the nuclear steam generators further down the steam network.
     o10 = Connection(merge_hot, "out1", oil_side_sg, "in1",
-                     label=state(10, "hot header -> steam generator", mark=True))
+                     label=state(10, "hot header -> solar superheater + reheater", mark=True))
     o11 = Connection(oil_side_sg, "out1", merge_cold, "in1",
-                     label=state(11, "steam generator -> cold header", mark=True))
+                     label=state(11, "solar superheater + reheater -> cold header", mark=True))
     o12 = Connection(merge_cold, "out1", cycle_closer_oil, "in1",
                      label=state(12, "cold header merge -> closer"))
 
@@ -380,8 +392,7 @@ def solve_configuration1(
         mass_flow="kg/s"
     )
 
-    cooling_fluid = {"water": 1}
-    working_fluid = {"water": 1}
+
 
     cwso = Source("cooling water source")
     cwsi = Sink("cooling water sink")
@@ -626,6 +637,8 @@ def solve_configuration1(
     steam_generator_1.set_attr(pr=pr_steam_generator, Q=steam_generator_duty)
     steam_generator_2.set_attr(Q=steam_generator_duty)
 
+    # In-service pressure ratios. solve_power_block resets these to 1 whenever the
+    # field has no duty to hand over, which valves the pair out of the steam path.
     super_heater.set_attr(pr=pr_solar_superheater)
     interstage_heater_0.set_attr(pr=pr_solar_reheater)
 
@@ -822,7 +835,9 @@ def solve_configuration1(
                                        OilLoop=OilLoop,oil_sg=oil_side_sg)
     P_turbine_design, P_pumps_design = solve_power_block(Q_to_steam_design, super_heater, interstage_heater_0,
                                                          SteamCycle, turbine_list, pump_list,
-                                                         reheat_fraction=reheat_fraction)
+                                                         reheat_fraction=reheat_fraction,
+                                                         pr_heat_in=pr_solar_superheater,
+                                                         pr_reheater=pr_solar_reheater)
 
     # ---------------------------------------------------------------------------
     # Annual simulation
@@ -872,7 +887,9 @@ def solve_configuration1(
             Q_to_steam = 0.0
 
         P_turbine, P_pumps = solve_power_block(Q_to_steam, super_heater, interstage_heater_0, SteamCycle, turbine_list,
-                                               pump_list, reheat_fraction=reheat_fraction)
+                                               pump_list, reheat_fraction=reheat_fraction,
+                                               pr_heat_in=pr_solar_superheater,
+                                               pr_reheater=pr_solar_reheater)
         m_steam = s2.m.val
 
         step["day_of_year"] = day_of_year
