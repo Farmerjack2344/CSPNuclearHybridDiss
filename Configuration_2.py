@@ -850,10 +850,14 @@ def solve_configuration2(
     # Secondary Organic Rankine Cycle            #
     ##############################################
     # The nuclear condenser is this cycle's boiler, so there is no separate
-    # evaporator and no feedwater heating: every degree of regeneration would only
-    # push the organic fluid into the nuclear condenser hotter and shrink the
-    # amount of rejection heat it can absorb. Solar heat lands on the superheater
-    # and the reheater, which are the only two high-temperature components here.
+    # evaporator. The cycle is left non-regenerative: the deaerator and HP heater
+    # this secondary cycle inherited from Andasol sat at saturation at 10.04 and
+    # 20.72 bar, i.e. 453 K and 487 K, and any feedwater hotter than the 372.8 K
+    # the nuclear steam condenses at stops heat crossing the nuclear condenser
+    # altogether. Rebuilt at ORC pressures and placed ahead of the evaporator,
+    # regeneration would raise output - the rejection duty is fixed by the nuclear
+    # side, so the mass flow just rises to absorb it - at the cost of a much
+    # larger condenser. That is deliberately not modelled here.
     cycle_closer_secondary = CycleCloser("ORC Cycle Closer")
     orc_superheater = SimpleHeatExchanger("ORC superheater : Solar input")
     orc_reheater = SimpleHeatExchanger("ORC reheater : Solar input")
@@ -1065,6 +1069,10 @@ def solve_configuration2(
     results = pd.DataFrame(log)
     if results_csv is not None:
         results.to_csv(results_csv, index=False)
+    print("\n" * 5)
+    print(f"Turbine power: {step["P_turbine"]}")
+    print(f"Pump power: {step["P_pumps"]}")
+    print(f"Efficiency: {step["efficiency"]}")
     return results
 
 
