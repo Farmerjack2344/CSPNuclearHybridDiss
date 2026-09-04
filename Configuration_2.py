@@ -60,6 +60,43 @@ def trim_results(*networks):
                 comp.set_attr(printout=False)
 
 
+def banner(title, colour):
+    """Frame a section title so the results tables are easy to tell apart."""
+    rule = "#" * 91
+    return f"{Style.BRIGHT}{colour}\n\n\n\n{rule}\n#{title.center(89)}#\n{rule}"
+
+
+def print_results_split(network, groups):
+    """Print one results table per group of components and connections.
+
+    TESPy prints a network as one table, and the nuclear cycle and the organic
+    bottoming cycle share a network here because they share the condenser.
+    Printing each group with everything else switched out therefore separates
+    them on screen without having to split the network itself.
+
+    Whatever :func:`trim_results` already hid stays hidden - a group member that
+    was switched off is not switched back on - and the original printout flags
+    are restored on the way out.
+
+    :param groups: sequence of (header, components, connections)
+    """
+    conn_printout = {c: c.printout for c in network.conns["object"]}
+    comp_printout = {c: c.printout for c in network.comps["object"]}
+    try:
+        for header, comps, conns in groups:
+            for conn, printout in conn_printout.items():
+                conn.set_attr(printout=printout and conn in conns)
+            for comp, printout in comp_printout.items():
+                comp.set_attr(printout=printout and comp in comps)
+            print(header)
+            network.print_results()
+    finally:
+        for conn, printout in conn_printout.items():
+            conn.set_attr(printout=printout)
+        for comp, printout in comp_printout.items():
+            comp.set_attr(printout=printout)
+
+
 # ---------------------------------------------------------------------------
 # Solar field helper functions: to calculate thermal loss
 # ---------------------------------------------------------------------------
@@ -349,8 +386,17 @@ def solve_configuration2(
         day_number=8,
         verbose=True,
         results_csv="ModelResults/configuration_2_hourly.csv",
+        design_point_out=None,
+        hourly=True,
 ):
     """Solve configuration 2: nuclear rejection heat boiling an organic bottoming cycle.
+
+    :param design_point_out: dict to receive the networks, left at the design
+        point rather than at the last hour of the run. This is what ts_diagram
+        plots, since a cycle diagram of the small hours would show the plant
+        with its solar equipment valved out.
+    :param hourly: if False, stop after the design-point solve. The T-s
+        diagram script uses that so it does not have to run a weather day.
 
     The two cycles are stacked rather than mixed. No solar heat touches the
     nuclear steam at all - that is configuration 1 - and the nuclear cycle has no
@@ -868,26 +914,28 @@ def solve_configuration2(
     cooling_water_in = Source("Cooling water in")
     cooling_water_out = Sink("Cooling water out")
 
+    # The ORC gets its own results table, so its states are numbered from 1
+    # again rather than carrying on from the nuclear cycle's 36.
     c1 = Connection(cycle_closer_secondary, "out1", nuclear_condenser, "in2",
-                    label=state(44, "ORC feed -> nuclear condenser (cold side)", mark=True))
+                    label=state(1, "ORC feed -> nuclear condenser (cold side)", mark=True))
     c2 = Connection(nuclear_condenser, "out2", orc_superheater, "in1",
-                    label=state(45, "saturated ORC vapour -> solar superheater", mark=True))
+                    label=state(2, "saturated ORC vapour -> solar superheater", mark=True))
     c3 = Connection(orc_superheater, "out1", HP_turbine_secondary, "in1",
-                    label=state(46, "solar superheater -> ORC HP turbine inlet", mark=True))
+                    label=state(3, "solar superheater -> ORC HP turbine inlet", mark=True))
     c4 = Connection(HP_turbine_secondary, "out1", orc_reheater, "in1",
-                    label=state(47, "ORC HP exhaust -> solar reheater", mark=True))
+                    label=state(4, "ORC HP exhaust -> solar reheater", mark=True))
     c5 = Connection(orc_reheater, "out1", LP_turbine_secondary, "in1",
-                    label=state(48, "solar reheater -> ORC LP turbine inlet", mark=True))
+                    label=state(5, "solar reheater -> ORC LP turbine inlet", mark=True))
     c6 = Connection(LP_turbine_secondary, "out1", condenser_secondary, "in1",
-                    label=state(49, "ORC LP exhaust (ORC backpressure)", mark=True))
+                    label=state(6, "ORC LP exhaust (ORC backpressure)", mark=True))
     c7 = Connection(condenser_secondary, "out1", feed_pump_secondary, "in1",
-                    label=state(50, "ORC condensate -> ORC feed pump", mark=True))
+                    label=state(7, "ORC condensate -> ORC feed pump", mark=True))
     c8 = Connection(feed_pump_secondary, "out1", cycle_closer_secondary, "in1",
-                    label=state(51, "ORC feed pump discharge"))
+                    label=state(8, "ORC feed pump discharge"))
     c9 = Connection(cooling_water_in, "out1", condenser_secondary, "in2",
-                    label=state(52, "ORC cooling water in"))
+                    label=state(9, "ORC cooling water in"))
     c10 = Connection(condenser_secondary, "out2", cooling_water_out, "in1",
-                     label=state(53, "ORC cooling water out"))
+                     label=state(10, "ORC cooling water out"))
 
     # The nuclear condenser is the only place the two cycles touch. Its shell side
     # holds saturated liquid by construction (Condenser, subcooling off), so the
@@ -944,22 +992,39 @@ def solve_configuration2(
 
     oil_conns = [o3, o4, o6, o7, o8, o9]
 
+    # The two cycles share one network but not one results table. The nuclear
+    # condenser is the component they share, so it is listed on both sides: its
+    # shell is the last state of the nuclear cycle and its tubes the first of
+    # the ORC.
+    orc_comps = {
+        cycle_closer_secondary, nuclear_condenser, orc_superheater, orc_reheater,
+        HP_turbine_secondary, LP_turbine_secondary, condenser_secondary,
+        feed_pump_secondary, cooling_water_in, cooling_water_out,
+    }
+    orc_conns = {c1, c2, c3, c4, c5, c6, c7, c8, c9, c10}
+    nuclear_comps = (set(SteamCycle.comps["object"]) - orc_comps) | {nuclear_condenser}
+    nuclear_conns = set(SteamCycle.conns["object"]) - orc_conns
+
     # ---------------------------------------------------------------------------
     # Design point check against Asfand et al. (2020), Tables 1 and 4
     # ---------------------------------------------------------------------------
-    Q_to_steam_design = solve_oil_loop(
-        Q_design_thermal, 0.0, 0.0,
-        oil_conns=oil_conns, solar_field=solar_field,
-        T_field_out=T_field_out, T_charge_out=T_cold_header,
-        T_discharge_out=T_discharge_out,
-        charge_hx_oil=charge_hx_oil, discharge_hx_oil=discharge_hx_oil,
-        OilLoop=OilLoop, oil_sg=oil_side_sg,
-    )
-    P_turbine_design, P_pumps_design = solve_power_block(
-        Q_to_steam_design, orc_superheater, orc_reheater,
-        SteamCycle, turbine_list, pump_list, reheat_fraction=reheat_fraction,
-        pr_heat_in=pr_orc_superheater, pr_reheater=pr_orc_reheater,
-    )
+    def solve_design_point():
+        """Put the plant on its design duty: full field, no storage exchange."""
+        Q_to_steam_design = solve_oil_loop(
+            Q_design_thermal, 0.0, 0.0,
+            oil_conns=oil_conns, solar_field=solar_field,
+            T_field_out=T_field_out, T_charge_out=T_cold_header,
+            T_discharge_out=T_discharge_out,
+            charge_hx_oil=charge_hx_oil, discharge_hx_oil=discharge_hx_oil,
+            OilLoop=OilLoop, oil_sg=oil_side_sg,
+        )
+        return solve_power_block(
+            Q_to_steam_design, orc_superheater, orc_reheater,
+            SteamCycle, turbine_list, pump_list, reheat_fraction=reheat_fraction,
+            pr_heat_in=pr_orc_superheater, pr_reheater=pr_orc_reheater,
+        )
+
+    P_turbine_design, P_pumps_design = solve_design_point()
 
     # ---------------------------------------------------------------------------
     # Annual simulation
@@ -967,7 +1032,8 @@ def solve_configuration2(
     day = (24 * day_number) - 1
     eod = day + 24
 
-    for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[day:eod]:
+    hourly_rows = DNI_values[day:eod] if hourly else []
+    for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         T_amb_K = T_amb + 273.15
 
         Q_solar = Q_solar_field(
@@ -1034,54 +1100,40 @@ def solve_configuration2(
             print(f"Pump power: {step["P_pumps"]}")
             print(f"Efficiency: {step["efficiency"]}")
 
-            print(Style.BRIGHT + Fore.MAGENTA + """\n\n\n\n
-                            ###########################################################################################
-                            #                                                                                         #
-                            #                                Steam Cycle                                              #
-                            #                                                                                         #
-                            ###########################################################################################
-                            """)
-            SteamCycle.print_results()
-            print(Style.BRIGHT + Fore.MAGENTA + """\n\n\n\n
-                            ###########################################################################################
-                            #                                                                                         #
-                            #                                Steam Cycle                                              #
-                            #                                                                                         #
-                            ###########################################################################################
-                            """)
+            print_results_split(SteamCycle, [
+                (banner("Nuclear steam cycle (topping)", Fore.MAGENTA),
+                 nuclear_comps, nuclear_conns),
+                (banner("Organic Rankine cycle (bottoming)", Fore.CYAN),
+                 orc_comps, orc_conns),
+            ])
 
-            print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
-                                    ###########################################################################################
-                                    #                                                                                         #
-                                    #                                Oil loop                                                 #
-                                    #                                                                                         #
-                                    ###########################################################################################
-                                    """)
+            print(banner("Oil loop", Fore.GREEN))
             OilLoop.print_results()
-            print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
-                                    ###########################################################################################
-                                    #                                                                                         #
-                                    #                                Oil loop                                              #
-                                    #                                                                                         #
-                                    ###########################################################################################
-                                    """)
 
     results = pd.DataFrame(log)
     if results_csv is not None:
         results.to_csv(results_csv, index=False)
-    print("\n" * 5)
-    print(f"Turbine power: {step["P_turbine"]}")
-    print(f"Pump power: {step["P_pumps"]}")
-    print(f"Efficiency: {step["efficiency"]}")
+    if log:
+        print("\n" * 5)
+        print(f"Turbine power: {step["P_turbine"]}")
+        print(f"Pump power: {step["P_pumps"]}")
+        print(f"Efficiency: {step["efficiency"]}")
+
+    # The hourly run leaves the networks wherever the last hour put them, so
+    # anything wanting to inspect the plant itself gets it back on design first.
+    if design_point_out is not None:
+        solve_design_point()
+        design_point_out.update({"steam": SteamCycle, "oil": OilLoop})
     return results
 
 
-results = solve_configuration2()
+if __name__ == "__main__":
+    results = solve_configuration2()
 
-# ---------------------------------------------------------------------------
-# Annual summary
-# ---------------------------------------------------------------------------
-hours = dt / 3600
-to_GWh = hours / 1e9
-Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
-operating = results["P_turbine"] > 0
+    # ---------------------------------------------------------------------------
+    # Annual summary
+    # ---------------------------------------------------------------------------
+    hours = dt / 3600
+    to_GWh = hours / 1e9
+    Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
+    operating = results["P_turbine"] > 0

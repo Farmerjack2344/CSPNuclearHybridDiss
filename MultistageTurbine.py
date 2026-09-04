@@ -244,6 +244,32 @@ class MultiStageExtractionTurbine(Turbomachine):
                 ]
         )
 
+    def get_plotting_data(self):
+        """FluProDia plotting data, one entry per expansion stage.
+
+        The inherited Turbomachine version reports a single expansion from the
+        component inlet to out1, which on a multi-stage turbine is only the
+        first stage: the rest of the expansion is missing from any T-s or h-s
+        diagram drawn from it, leaving the diagram open between the first
+        extraction and whatever the exhaust feeds. Stage i is reported here from
+        its own inlet - the component inlet for stage 1, the previous stage's
+        extraction after that - down to out{i}.
+        """
+        data = {}
+        for stage in range(1, self._num_active_stages() + 1):
+            i = self._stage_inlet_conn(stage)
+            o = self._stage_outlet_conn(stage)
+            data[stage] = {
+                "isoline_property": "s",
+                "isoline_value": i.s.val,
+                "isoline_value_end": o.s.val,
+                "starting_point_property": "vol",
+                "starting_point_value": i.vol.val,
+                "ending_point_property": "vol",
+                "ending_point_value": o.vol.val,
+            }
+        return data
+
     def calc_P(self):
         """
         Calculate turbine power from the overall steady-flow

@@ -275,9 +275,17 @@ def solve_configuration1(
         day_number=183,
         verbose=True,
         results_csv="ModelResults/configuration_1_hourly.csv",
+        design_point_out=None,
+        hourly=True,
 ):
     """Solve configuration 1: solar heat injected into the nuclear steam cycle.
     :param fluids:
+    :param design_point_out: dict to receive the networks, left at the design
+        point rather than at the last hour of the run. This is what ts_diagram
+        plots, since a cycle diagram of the small hours would show the plant
+        with its solar equipment valved out.
+    :param hourly: if False, stop after the design-point solve. The T-s
+        diagram script uses that so it does not have to run a weather day.
 
 
     """
@@ -293,9 +301,9 @@ def solve_configuration1(
 
     eta_s_htf_pump = 0.8
     pr_solar_field = 0.65
-    pr_solar_superheater = 0.97,
-    pr_solar_reheater = 0.97,
-    pr_oil_sg = 0.95,
+    pr_solar_superheater = 0.97
+    pr_solar_reheater = 0.97
+    pr_oil_sg = 0.95
 
     OilLoop = Network()
     OilLoop.units.set_defaults(
@@ -826,18 +834,22 @@ def solve_configuration1(
     # ---------------------------------------------------------------------------
     # Design point check against Asfand et al. (2020), Tables 1 and 4
     # ---------------------------------------------------------------------------
-    Q_to_steam_design = solve_oil_loop(Q_design_thermal, 0.0, 0.0, oil_conns=[o3,o4,o6,o7,o8,o9],
-                                       solar_field=solar_field,
-                                       T_field_out=T_field_out,
-                                       T_charge_out=T_cold_header,
-                                       T_discharge_out=T_discharge_out,
-                                       charge_hx_oil=charge_hx_oil,discharge_hx_oil=discharge_hx_oil,
-                                       OilLoop=OilLoop,oil_sg=oil_side_sg)
-    P_turbine_design, P_pumps_design = solve_power_block(Q_to_steam_design, super_heater, interstage_heater_0,
-                                                         SteamCycle, turbine_list, pump_list,
-                                                         reheat_fraction=reheat_fraction,
-                                                         pr_heat_in=pr_solar_superheater,
-                                                         pr_reheater=pr_solar_reheater)
+    def solve_design_point():
+        """Put the plant on its design duty: full field, no storage exchange."""
+        Q_to_steam_design = solve_oil_loop(Q_design_thermal, 0.0, 0.0, oil_conns=[o3,o4,o6,o7,o8,o9],
+                                           solar_field=solar_field,
+                                           T_field_out=T_field_out,
+                                           T_charge_out=T_cold_header,
+                                           T_discharge_out=T_discharge_out,
+                                           charge_hx_oil=charge_hx_oil,discharge_hx_oil=discharge_hx_oil,
+                                           OilLoop=OilLoop,oil_sg=oil_side_sg)
+        return solve_power_block(Q_to_steam_design, super_heater, interstage_heater_0,
+                                 SteamCycle, turbine_list, pump_list,
+                                 reheat_fraction=reheat_fraction,
+                                 pr_heat_in=pr_solar_superheater,
+                                 pr_reheater=pr_solar_reheater)
+
+    P_turbine_design, P_pumps_design = solve_design_point()
 
     # ---------------------------------------------------------------------------
     # Annual simulation
@@ -845,7 +857,8 @@ def solve_configuration1(
     day = (24 * day_number)
     eod = day + 24
     tick = 0
-    for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[day:eod]:
+    hourly_rows = DNI_values[day:eod] if hourly else []
+    for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         progress_total = len(DNI_values[day:eod])
         progress = tick / progress_total
 
@@ -952,15 +965,25 @@ def solve_configuration1(
     results = pd.DataFrame(log)
     if results_csv is not None:
         results.to_csv(results_csv, index=False)
+
+    # The hourly run leaves the networks wherever the last hour put them, so
+    # anything wanting to inspect the plant itself gets it back on design first.
+    if design_point_out is not None:
+        solve_design_point()
+        design_point_out.update({"steam": SteamCycle, "oil": OilLoop})
+
     return results
-results = solve_configuration1()
-# ---------------------------------------------------------------------------
-# Annual summary
-# ---------------------------------------------------------------------------
-hours = dt / 3600
-to_GWh = hours / 1e9
-Q_incident = (results["DNI(K)"] * collector_area).sum() * to_GWh
-operating = results["P_turbine"] > 0
+
+
+if __name__ == "__main__":
+    results = solve_configuration1()
+    # ---------------------------------------------------------------------------
+    # Annual summary
+    # ---------------------------------------------------------------------------
+    hours = dt / 3600
+    to_GWh = hours / 1e9
+    Q_incident = (results["DNI(K)"] * collector_area).sum() * to_GWh
+    operating = results["P_turbine"] > 0
 
 
 
