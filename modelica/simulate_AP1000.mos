@@ -1,0 +1,9 @@
+cd("C:/Users/Nathaniel/FarmerJackInc/CSPNuclearHybridDiss/modelica");
+loadFile("AP1000.mo");
+print(getErrorString());
+simulate(AP1000, startTime=0, stopTime=50, numberOfIntervals=250);
+print(getErrorString());
+print("m_steam(end) kg/s = " + String(val(m_steam, 50)));
+print("P_net(end) MW     = " + String(val(P_net, 50)/1e6));
+print("eta_cycle         = " + String(val(eta_cycle, 50)*100) + " %");
+print("Q(end) MW         = " + String(val(Q, 50)/1e6));

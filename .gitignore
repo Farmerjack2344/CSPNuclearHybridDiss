@@ -9,3 +9,19 @@ status.txt
 connections.txt
 rankine.py
 optimise_example.py
+
+# OpenModelica build products
+modelica/AP1000
+modelica/AP1000.exe
+modelica/*.c
+modelica/*.h
+modelica/*.o
+modelica/*.mat
+modelica/*.json
+modelica/*.xml
+modelica/*.bin
+modelica/*.libs
+modelica/*.log
+modelica/*.makefile
+modelica/*.bat
+modelica/*.opt

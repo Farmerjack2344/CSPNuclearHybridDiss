@@ -41,9 +41,7 @@ def trim_results(*networks):
 def cos_theta(day_of_year, solar_hour, solar_elevation_deg):
     """Incidence angle factor for a north-south axis, east-west tracking trough.
 
-    Duffie & Beckman eq. 1.7.2a. The zenith term is taken straight from the
-    measured solar elevation in the weather file rather than recomputed from
-    latitude, so it stays consistent with the DNI it is applied to.
+    Duffie & Beckman eq. 1.7.2a.
     """
     delta = np.radians(23.45 * np.sin(np.radians(360 * (284 + day_of_year) / 365)))
     omega = np.radians(15 * (solar_hour - 12))
@@ -216,7 +214,7 @@ T_htf_in = 273.15 + 293        # K, HTF returned to the field from the SG
 mdot_htf = 618.1              # kg/s, design HTF flow
 
 DNI_values = meteorolgoical_values()
-dt = 3600  # s, hourly PVGIS data
+dt = 3600  # s, hourly
 
 # ---------------------------------------------------------------------------
 # NETWORK 1 -- Oil loop (Therminol VP-1)
@@ -243,7 +241,8 @@ def solve_configuration1(
 
         # --- Solar heat injection into the nuclear steam ---
         reheat_fraction=21.479 / (118.958 + 21.479),  # solar duty sent to the reheater
-
+        #
+        main_mass_flow_bleed=66/1891,
 
         # --- Live steam state ---
         p_main_steam=5.571e6,                # Pa
@@ -289,6 +288,7 @@ def solve_configuration1(
 
 
     """
+    main_mass_flow = 1891
     # --- Turbomachinery efficiencies ---
     eta_s_hp_turbine = 0.84
     eta_s_lp_turbine = 0.873
@@ -723,9 +723,9 @@ def solve_configuration1(
 
     # Main steam, DCD Fig 10.1-1: 808 psia / 1197.6 BTU/lb. The flow follows from the
     # two steam generator duties, so only a start value is given here.
-    s1.set_attr(p=p_main_steam, h=h_main_steam, m0=1891, fluid=working_fluid)
-    s1b.set_attr(m0=1824, h0=2.786e6)  # main steam -> HP turbine
-    s1c.set_attr(m0=66, h0=2.786e6)  # main steam bleed -> interstage heater 1
+    s1.set_attr(p=p_main_steam, h=h_main_steam, m0=main_mass_flow, fluid=working_fluid)
+    s1b.set_attr(m0=main_mass_flow * (1 - main_mass_flow_bleed), h0=2.786e6)  # main steam -> HP turbine
+    s1c.set_attr(m0=main_mass_flow * main_mass_flow_bleed, h0=2.786e6)  # main steam bleed -> interstage heater 1
 
     # HP turbine outlets: pressures fall along the stage order out1 -> ... -> out4.
     # Extrastion masses are results of each heater's ttd_u. c13 sits at 2.0 MPa so
@@ -740,9 +740,7 @@ def solve_configuration1(
     s3.set_attr(p=p_hp_bleed_2, m0=92, h0=2.690e6)  # stage-2 extraction -> HP FWH 2
     s13.set_attr(p=p_hp_bleed_3, m0=284, h0=2.640e6)  # stage-3 extraction -> HP FWH merge
 
-    # Interstage heater drains. x=0 on both shells sets the bleed flows; heater 1's
-    # drain is then throttled to heater 2's shell-outlet pressure, whish is what the
-    # merge pins the two branshes to.
+    # Interstage heater drains.
     s31.set_attr(x=0, m0=66, h0=1.179e6)
     s32.set_attr(m0=66, h0=1.179e6)
     s33.set_attr(x=0, m0=60, h0=1.079e6)
@@ -751,9 +749,7 @@ def solve_configuration1(
     s36.set_attr(m0=126, h0=9.93e5)
     s37.set_attr(m0=218, h0=1.706e6)
 
-    # LP bleed pressures, DCD LP extraction stages. Spreading them 0.289 / 0.086 /
-    # 0.0405 MPa puts Tsat at 405 / 369 / 349 K against condensate entering at
-    # 312 K, which is the ladder the DCD feedwater temperatures imply.
+    # LP bleed pressures
     s40.set_attr(p=p_lp_bleed_1, m0=104, h0=2.710e6)  # LP bleed 1 -> LP FWH 2
     s41.set_attr(p=p_lp_bleed_2, m0=1112, h0=2.535e6)  # LP stage 1 exhaust
     s42.set_attr(m0=16, h0=2.535e6)  # LP bleed 2 -> LP FWH 3
@@ -762,23 +758,21 @@ def solve_configuration1(
     s45.set_attr(m0=90, h0=2.435e6)  # LP bleed 3 -> LP FWH 4
     s46.set_attr(m0=1006, h0=2.435e6)
 
-    # Condenser backpressure. The DCD's 5.66 psia is the last LP extraction, not
-    # condenser vacuum; the hotwell sits at 7 kPa, which is the 118.7 F / 86.7
-    # BTU/lb condensate point on the heat balance.
+    # Condenser backpressure.
     s5.set_attr(p=p_condenser, m0=1006, h0=2.230e6)  # LP turbine exhaust
 
-    s8.set_attr(p=p_condensate, m0=1891, h0=1.65e5)
+    s8.set_attr(p=p_condensate, m0=main_mass_flow, h0=1.65e5)
 
-    s60.set_attr(m0=1891, h0=2.988e5)
-    s61.set_attr(m0=1891, h0=3.797e5)
-    s62.set_attr(m0=1891, h0=5.352e5)
-    s9.set_attr(m0=1891, h0=5.979e5)
-    s9a.set_attr(m0=1891, h0=6.132e5)
+    s60.set_attr(m0=main_mass_flow, h0=2.988e5)
+    s61.set_attr(m0=main_mass_flow, h0=3.797e5)
+    s62.set_attr(m0=main_mass_flow, h0=5.352e5)
+    s9.set_attr(m0=main_mass_flow, h0=5.979e5)
+    s9a.set_attr(m0=main_mass_flow, h0=6.132e5)
 
-    s10.set_attr(m0=1891, h0=6.203e5)
-    s11.set_attr(m0=1891, h0=8.873e5)
-    s16.set_attr(m0=1891, h0=9.706e5)
-    s38.set_attr(m0=1891, h0=9.798e5)
+    s10.set_attr(m0=main_mass_flow, h0=6.203e5)
+    s11.set_attr(m0=main_mass_flow, h0=8.873e5)
+    s16.set_attr(m0=main_mass_flow, h0=9.706e5)
+    s38.set_attr(m0=main_mass_flow, h0=9.798e5)
 
     # Even split between the two steam generators: fixing the enthalpy leaving shell 1
     # at the main steam value forces the merge to hand shell 2 the same outlet state,
@@ -792,8 +786,7 @@ def solve_configuration1(
     s15.set_attr(x=0, m0=502, h0=9.015e5)  # HP FWH 1 drain leaves as saturated liquid
     s17.set_attr(x=0, m0=218, h0=9.854e5)  # HP FWH 2 drain leaves as saturated liquid
 
-    # LP FWH 1 shell pressure. Tsat(0.6 MPa) = 432 K against feedwater at 400 K, so
-    # the throttled HP FWH 1 drain arrives wet (x ~ 0.11) and condenses out.
+    # LP FWH 1 shell pressure.
     s18.set_attr(p=p_lp_fwh_1_shell, m0=502, h0=9.015e5)
     s19.set_attr(x=0, m0=502, h0=6.652e5)
     s20.set_attr(m0=502, h0=6.652e5)
@@ -857,10 +850,11 @@ def solve_configuration1(
     day = (24 * day_number)
     eod = day + 24
     tick = 0
-    hourly_rows = DNI_values[day:eod] if hourly else []
+    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 11]
     for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         progress_total = len(DNI_values[day:eod])
         progress = tick / progress_total
+
 
         T_amb_K = T_amb + 273.15
 
@@ -870,6 +864,7 @@ def solve_configuration1(
             T_htf_in=T_htf_in, mdot_htf=mdot_htf, htf=htf,
             day_of_year=day_of_year, solar_elevation_deg=solar_elevation,
         )
+        print(f"DNI: {DNI}, Q Solar: {Q_solar}")
         solar_field.set_attr(Q=Q_solar)
         step = dispatch(Q_solar=Q_solar, Q_design=Q_design_thermal, tank=tank, dt=dt)
 
@@ -976,7 +971,7 @@ def solve_configuration1(
 
 
 if __name__ == "__main__":
-    results = solve_configuration1()
+    results = solve_configuration1(hourly=Falses)
     # ---------------------------------------------------------------------------
     # Annual summary
     # ---------------------------------------------------------------------------
