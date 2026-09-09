@@ -336,37 +336,38 @@ SteamCycle.add_conns(s1, s2, s3, s4, s5, s6, s7, s8, s9, s10,
 
 
 HP_turbine.set_attr(eta_s=0.848)
-LP_turbine_1.set_attr(eta_s=0.916)
-LP_turbine_2.set_attr(eta_s=0.916)
+LP_turbine_1.set_attr(eta_s=0.822)
+LP_turbine_2.set_attr(eta_s=0.822)
 steam_side_sg.set_attr(pr=0.95)
 condenser.set_attr(pr1=1, pr2=0.98)
 condensate_pump.set_attr(eta_s=0.9)
 booster_pump.set_attr(eta_s=0.9)
 feed_pump.set_attr(eta_s=0.9)
 
-# Live steam state is held fixed; the steam mass flow is what follows from the
-# duty handed over by the oil loop, so it must NOT be fixed here as well.
-s2.set_attr(fluid=rankine_cycle_fluid, p=105e5, T=654.15)
-s3.set_attr(p=20.72e5)
+# Live steam T, p (hence h) are the paper HP-inlet state. Mass flow is the
+# specification that sizes the cycle: steam-generator Q is m*(h_live - h_fw),
+# so setting both over-determines the boiler. Leave Q free; TESPy will report it.
+M_LIVE_DESIGN = 60.935  # kg/s, Siemens / Asfand Table 4
+s2.set_attr(fluid=rankine_cycle_fluid, p=105e5, T=654.15, m=M_LIVE_DESIGN,
+            h0=3.0202e6)
+s3.set_attr(p=20.72e5, h0=2.7281e6)
 
-# Reheat outlet temperature is free: the reheater duty is set per timestep from
-# the oil-side duty split, and fixing both would over-determine the reheater.
-s5.set_attr(p=18.29e5)
+# Reheat outlet T closes the reheater. Q_rh = m_rh*(h_s5 - h_s4), so T and Q
+# together would over-specify it the same way.
+s5.set_attr(p=18.29e5, T=653.15, h0=3.2072e6)
 s6.set_attr(p=10.04e5)
-s8.set_attr(p=0.065e5)
+s8.set_attr(p=0.065e5, h0=2.3059e6)
 
 # Saturated liquid out of each open heater is what sizes its extraction: the
 # solver picks the bled steam flow that exactly saturates the feed water.
 s12.set_attr(x=0)
 s15.set_attr(x=0)
 
-s17.set_attr(fluid=cooling_fluid, m=2502, T=300.15, p=1.2e5)
+# Starting guesses on the extraction branches once live-steam flow is pinned.
+s11.set_attr(m0=12.0)
+s14.set_attr(m0=6.0)
 
-# Fraction of the oil-side duty that goes to reheat rather than to the main
-# steam generator. Asfand et al. split the HTF mass flow 90/10, which comes out
-# as 21.479/140.437 of the duty because the reheater cools its HTF stream
-# further than the steam generator does.
-reheat_fraction = 21.479 / (118.958 + 21.479)
+s17.set_attr(fluid=cooling_fluid, m=2502, T=300.15, p=1.2e5)
 
 def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage):
     """Solve the HTF loop for one timestep and return the duty it hands over."""
@@ -380,10 +381,15 @@ def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage):
 def solve_power_block(Q_to_steam):
     """Solve the steam cycle against the duty the HTF loop gave up.
 
+    Live-steam mass flow is the handle, not boiler Q. The oil-side duty only
+    scales m off the 60.935 kg/s design point; SG and reheater duties then
+    follow from the fixed states.
+
     Returns gross turbine output and the feed water pumping parasitics, both W.
     """
-    steam_side_sg.set_attr(Q=Q_to_steam * (1 - reheat_fraction))
-    steam_side_reheater.set_attr(Q=Q_to_steam * reheat_fraction)
+    s2.set_attr(m=M_LIVE_DESIGN * Q_to_steam / Q_design_thermal)
+    steam_side_sg.set_attr(Q=None)
+    steam_side_reheater.set_attr(Q=None)
     SteamCycle.solve("design")
     P_turbine = -(HP_turbine.P.val + LP_turbine_1.P.val + LP_turbine_2.P.val)
     P_pumps = condensate_pump.P.val + booster_pump.P.val + feed_pump.P.val
@@ -393,8 +399,8 @@ def solve_power_block(Q_to_steam):
 # ---------------------------------------------------------------------------
 # Design point check against Asfand et al. (2020), Tables 1 and 4
 # ---------------------------------------------------------------------------
-Q_to_steam_design = solve_oil_loop(Q_design_thermal, 0.0, 0.0)
-P_turbine_design, P_pumps_design = solve_power_block(Q_to_steam_design)
+solve_oil_loop(Q_design_thermal, 0.0, 0.0)
+P_turbine_design, P_pumps_design = solve_power_block(Q_design_thermal)
 
 print("Design point vs. Asfand et al. (2020) Andasol-1 flowsheet")
 print(f"{'quantity':<32}{'model':>12}{'paper':>12}")
@@ -489,4 +495,8 @@ print(f"  Gross capacity factor        "
 print()
 print("Hours by dispatch mode")
 print(results["mode"].value_counts().to_string())
+
+# print_results shows the last solved state. Re-establish the design point so
+# state 01 reports the paper live-steam flow, not the last hourly part-load.
+solve_power_block(Q_design_thermal)
 SteamCycle.print_results()

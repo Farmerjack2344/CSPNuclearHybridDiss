@@ -15,7 +15,7 @@ solve_configuration2()
 #   p_evaporatpr_secondary
 #   reheat fraction
 #   T_field_out
-#   p_condenser_secondary
+#   p_condenser_secondary : gonna be interesting
 
 
 
