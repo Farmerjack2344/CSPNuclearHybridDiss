@@ -850,7 +850,7 @@ def solve_configuration1(
     day = (24 * day_number)
     eod = day + 24
     tick = 0
-    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 11]
+    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 11: day + 12]
     for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         progress_total = len(DNI_values[day:eod])
         progress = tick / progress_total
@@ -971,7 +971,7 @@ def solve_configuration1(
 
 
 if __name__ == "__main__":
-    results = solve_configuration1(hourly=Falses)
+    results = solve_configuration1(hourly=False)
     # ---------------------------------------------------------------------------
     # Annual summary
     # ---------------------------------------------------------------------------

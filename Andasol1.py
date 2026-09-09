@@ -1,6 +1,8 @@
 import pandas as pd
 import math
 import numpy as np
+from colorama import Fore, Style, init
+init(autoreset=True)
 
 from tespy.networks import Network
 from tespy.components import (SimpleHeatExchanger, Splitter, Merge, CycleCloser,
@@ -11,6 +13,14 @@ from tespy.connections import Connection
 
 from MoltenSaltTank import MoltenSaltTank, dispatch
 from MoltenSalt import MoltenSalt
+
+
+def highlight(text):
+    return Fore.GREEN + Style.BRIGHT + text + Style.RESET_ALL
+
+
+def state(number, text, mark=False):
+    return f"{number:02d} {highlight(text) if mark else text}"
 
 rankine_cycle_fluid = {"water": 1}
 cooling_fluid = {"water": 1}
@@ -284,24 +294,42 @@ feed_pump = Pump("Feed Water Pump")
 cooling_water_in = Source("Cooling water in")
 cooling_water_out = Sink("Cooling water out")
 
-s1 = Connection(cycle_closer_steam, "out1", steam_side_sg, "in1", label="s1_closer_to_sg")
-s2 = Connection(steam_side_sg, "out1", HP_turbine, "in1", label="s2_live_steam")
-s3 = Connection(HP_turbine, "out1", hp_extraction, "in1", label="s3_hp_exhaust")
-s4 = Connection(hp_extraction, "out1", steam_side_reheater, "in1", label="s4_to_reheater")
-s5 = Connection(steam_side_reheater, "out1", LP_turbine_1, "in1", label="s5_reheated_steam")
-s6 = Connection(LP_turbine_1, "out1", lp_extraction, "in1", label="s6_lp_extraction_point")
-s7 = Connection(lp_extraction, "out1", LP_turbine_2, "in1", label="s7_to_lp_stage_2")
-s8 = Connection(LP_turbine_2, "out1", condenser, "in1", label="s8_turbine_to_condenser")
-s9 = Connection(condenser, "out1", condensate_pump, "in1", label="s9_condensate")
-s10 = Connection(condensate_pump, "out1", deaerator, "in1", label="s10_condensate_to_dea")
-s11 = Connection(lp_extraction, "out2", deaerator, "in2", label="s11_extraction_to_dea")
-s12 = Connection(deaerator, "out1", booster_pump, "in1", label="s12_dea_outlet")
-s13 = Connection(booster_pump, "out1", hp_heater, "in1", label="s13_to_hp_heater")
-s14 = Connection(hp_extraction, "out2", hp_heater, "in2", label="s14_extraction_to_hp_heater")
-s15 = Connection(hp_heater, "out1", feed_pump, "in1", label="s15_hp_heater_outlet")
-s16 = Connection(feed_pump, "out1", cycle_closer_steam, "in1", label="s16_feed_water")
-s17 = Connection(cooling_water_in, "out1", condenser, "in2", label="s17_cw_in")
-s18 = Connection(condenser, "out2", cooling_water_out, "in1", label="s18_cw_out")
+s1 = Connection(cycle_closer_steam, "out1", steam_side_sg, "in1",
+                label="s1_closer_to_sg")
+s2 = Connection(steam_side_sg, "out1", HP_turbine, "in1",
+                label=state(1, "Inlet of HP steam turbine", mark=True))
+s3 = Connection(HP_turbine, "out1", hp_extraction, "in1",
+                label=state(2, "Outlet of HP steam turbine", mark=True))
+s4 = Connection(hp_extraction, "out1", steam_side_reheater, "in1",
+                label="s4_to_reheater")
+s5 = Connection(steam_side_reheater, "out1", LP_turbine_1, "in1",
+                label=state(3, "Inlet of LP steam turbine", mark=True))
+s6 = Connection(LP_turbine_1, "out1", lp_extraction, "in1",
+                label="s6_lp_extraction_point")
+s7 = Connection(lp_extraction, "out1", LP_turbine_2, "in1",
+                label="s7_to_lp_stage_2")
+s8 = Connection(LP_turbine_2, "out1", condenser, "in1",
+                label=state(4, "Outlet of LP steam turbine", mark=True))
+s9 = Connection(condenser, "out1", condensate_pump, "in1",
+                label=state(5, "Outlet of condenser", mark=True))
+s10 = Connection(condensate_pump, "out1", deaerator, "in1",
+                label=state(6, "Discharge of LP feed-water pump", mark=True))
+s11 = Connection(lp_extraction, "out2", deaerator, "in2",
+                label="s11_extraction_to_dea")
+s12 = Connection(deaerator, "out1", booster_pump, "in1",
+                label=state(10, "Outlet of deaerator", mark=True))
+s13 = Connection(booster_pump, "out1", hp_heater, "in1",
+                label=state(11, "Discharge of HP feed-water pump", mark=True))
+s14 = Connection(hp_extraction, "out2", hp_heater, "in2",
+                label="s14_extraction_to_hp_heater")
+s15 = Connection(hp_heater, "out1", feed_pump, "in1",
+                label=state(12, "Outlet of HP feed-water heater 4", mark=True))
+s16 = Connection(feed_pump, "out1", cycle_closer_steam, "in1",
+                label=state(13, "Outlet of HP feed-water heater 5", mark=True))
+s17 = Connection(cooling_water_in, "out1", condenser, "in2",
+                label=state(14, "Cooling water at condenser inlet", mark=True))
+s18 = Connection(condenser, "out2", cooling_water_out, "in1",
+                label=state(15, "Cooling water at condenser outlet", mark=True))
 
 SteamCycle.add_conns(s1, s2, s3, s4, s5, s6, s7, s8, s9, s10,
                      s11, s12, s13, s14, s15, s16, s17, s18)
@@ -461,3 +489,4 @@ print(f"  Gross capacity factor        "
 print()
 print("Hours by dispatch mode")
 print(results["mode"].value_counts().to_string())
+SteamCycle.print_results()

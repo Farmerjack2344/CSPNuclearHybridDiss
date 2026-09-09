@@ -2,7 +2,7 @@ from Configuration_1 import solve_configuration1
 from Configuration_2 import solve_configuration2
 
 solve_configuration1()
-
+#TODO: find what I need to plot
 
 
 
@@ -26,5 +26,23 @@ solve_configuration2()
 # Solar-specific incremental efficiency — extra net power generated per unit of solar thermal input added (isolates whether the CSP contribution itself is being used well, independent of the fixed nuclear baseline)
 
 def plotting_fluids():
+    fluids = [{"R601a":1},{},{},{},{},{}]
+    #TODO: Fillthis in with fluids and then bar chart to find most efficient/power
+    pass
 
+#TODO: Plot the above, maybe using mat plot lib plotting efficiency/power against variable
+def plotting_p_nuclear_condenser():
+    pass
+
+def plotting_evaporator_secondary():
+    pass
+
+def plotting_reheat_fraction():
+    #probably 50 to 95%
+    pass
+
+def plotting_T_field_out():
+    pass
+
+def plotting_condenser_secondary():
     pass

@@ -914,10 +914,10 @@ def solve_configuration2(
     day = (24 * day_number) - 1
     eod = day + 24
 
-    hourly_rows = DNI_values[day:eod] if hourly else []
+    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 1: day + 12]
     for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         T_amb_K = T_amb + 273.15
-
+        print(f"Hour_num: {hour_num}, Day pf the year: {day_of_year}, DNI: {DNI}")
         Q_solar = Q_solar_field(
             hour_num=hour_num, DNI=DNI, T_amb_K=T_amb_K,
             collector_area=collector_area, optical_efficiency=optical_efficiency,
@@ -967,6 +967,7 @@ def solve_configuration2(
         step["P_pumps"] = P_pumps + htf_pump.P.val
         step["P_net"] = P_turbine - step["P_pumps"]
         step["efficiency"] = step["P_net"] / (step["Q_sg_oil"] + 2 * steam_generator_duty)
+        step["efficiency_solar"] = (step["P_net"] - (HP_turbine_secondary.P.val + LP_turbine_secondary.P.val))/(Q_to_steam)
         log.append(step)
 
         if verbose:
@@ -1003,7 +1004,7 @@ def solve_configuration2(
 
 
 if __name__ == "__main__":
-    results = solve_configuration2()
+    results = solve_configuration2(hourly=False)
 
     # ---------------------------------------------------------------------------
     # Annual summary
