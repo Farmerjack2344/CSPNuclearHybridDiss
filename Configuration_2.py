@@ -350,6 +350,7 @@ def solve_configuration2(
         results_csv="ModelResults/configuration_2_hourly.csv",
         design_point_out=None,
         hourly=True,
+        print_results=True
 ):
     """Solve configuration 2: nuclear rejection heat boiling an organic bottoming cycle.
 
@@ -757,7 +758,6 @@ def solve_configuration2(
     s74.set_attr(m0=945, h0=2.786e6)
 
 
-
     s63.set_attr(m0=778, h0=9.293e5)
     s64.set_attr(x=0, m0=778, h0=6.23e5)
     s65.set_attr(m0=778, h0=6.23e5)
@@ -900,7 +900,8 @@ def solve_configuration2(
     hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 12: day + 13]
     for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         T_amb_K = T_amb + 273.15
-        print(f"Hour_num: {hour_num}, Day of the year: {day_of_year}, DNI: {DNI}")
+        if print_results:
+            print(f"Hour_num: {hour_num}, Day of the year: {day_of_year}, DNI: {DNI}")
         Q_solar = Q_solar_field(
             hour_num=hour_num, DNI=DNI, T_amb_K=T_amb_K,
             collector_area=collector_area, optical_efficiency=optical_efficiency,
@@ -969,7 +970,7 @@ def solve_configuration2(
 
         log.append(step)
 
-        if verbose:
+        if verbose and print_results:
             print("\n" * 5)
             print(f"Turbine power: {step["P_turbine"]}")
             print(f"Pump power: {step["P_pumps"]}")
@@ -992,7 +993,7 @@ def solve_configuration2(
     else:
         results = step
 
-    if log:
+    if log and print_results:
         print("\n" * 5)
         print(f"Turbine power: {step["P_turbine"]}")
         print(f"Pump power: {step["P_pumps"]}")
@@ -1006,14 +1007,14 @@ def solve_configuration2(
     return results
 
 
-if __name__ == "__main__":
-    results = solve_configuration2(hourly=False)
-    print(results)
-
-    # # ---------------------------------------------------------------------------
-    # # Annual summary
-    # # ---------------------------------------------------------------------------
-    # hours = dt / 3600
-    # to_GWh = hours / 1e9
-    # Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
-    # operating = results["P_turbine"] > 0
+# if __name__ == "__main__":
+#     results = solve_configuration2(hourly=False)
+#     print(results)
+#
+#     # # ---------------------------------------------------------------------------
+#     # # Annual summary
+#     # # ---------------------------------------------------------------------------
+#     # hours = dt / 3600
+#     # to_GWh = hours / 1e9
+#     # Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
+#     # operating = results["P_turbine"] > 0
