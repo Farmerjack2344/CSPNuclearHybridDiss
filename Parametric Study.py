@@ -109,6 +109,9 @@ def plotting_p_nuclear_condenser():
     ax[1, 0].set_xlabel("Fluid")
     ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure")
 
+    pyplot.tight_layout()
+    pyplot.show()
+
 def plotting_evaporator_secondary():
     pass
 
@@ -121,4 +124,6 @@ def plotting_T_field_out():
 
 def plotting_condenser_secondary():
     pass
+
+
 plotting_p_nuclear_condenser()
