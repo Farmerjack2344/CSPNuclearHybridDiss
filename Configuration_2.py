@@ -717,8 +717,7 @@ def solve_configuration2(
     s45.set_attr(m0=90, h0=2.660e6)  # LP bleed 3 -> LP FWH 4
     s46.set_attr(m0=1006, h0=2.660e6)
 
-    # Condenser backpressure, raised from the DCD's 7 kPa so that the nuclear cycle
-    # condenses at 372.8 K and can actually boil the organic fluid.
+
     s5.set_attr(p=p_nuclear_condenser, m0=1006, h0=2.600e6)  # LP turbine exhaust
     # Will also effect how much power is extracted
     s6.set_attr(m0=1890, h0=2.55e6)

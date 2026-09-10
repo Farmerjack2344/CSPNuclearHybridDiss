@@ -72,7 +72,7 @@ def plotting_fluids():
 
 def plotting_p_nuclear_condenser():
     # The pressure coming out of the turbine
-    pressure_values = np.linspace( 0.4e5,2.5e5, 300)
+    pressure_values = np.linspace( 7e3,0.5e4, 50)
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
@@ -85,25 +85,29 @@ def plotting_p_nuclear_condenser():
         exergy_efficiency_values.append(results["efficiency_II"])
 
     fig, ax = pyplot.subplots(2, 2)
-    power_plot = ax[0, 0].plot(pressure_values, power_values)
-    power_plot.set_ylabel("Power (W)")
-    power_plot.set_xlabel("Pressure (Pa)")
-    power_plot.set_title("Power Output Vs. LP Turbine Outlet Pressure")
+    # Power plot
+    ax[0, 0].plot(pressure_values, power_values)
+    ax[0, 0].set_ylabel("Power (W)")
+    ax[0, 0].set_xlabel("Pressure (Pa)")
+    ax[0,0].set_title("Power Output Vs. LP Turbine Outlet Pressure")
 
-    efficiency_plot = ax[0, 1].plot(pressure_values, efficiency_values)
-    efficiency_plot.set_ylabel("Efficiency (%)")
-    efficiency_plot.set_xlabel("Pressure (Pa)")
-    efficiency_plot.set_title("Efficiency Vs. LP Turbine Outlet Pressure")
+    # Efficiency Plot
+    ax[0, 1].plot(pressure_values, efficiency_values)
+    ax[0, 1].set_ylabel("Efficiency (%)")
+    ax[0, 1].set_xlabel("Pressure (Pa)")
+    ax[0, 1].set_title("Efficiency Vs. LP Turbine Outlet Pressure")
 
-    solar_efficiency_plot = ax[1, 1].plot(pressure_values, solar_efficiency_values)
-    solar_efficiency_plot.set_ylabel("Efficiency (%)")
-    solar_efficiency_plot.set_xlabel("Fluid")
-    solar_efficiency_plot.set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure")
+    # Solar Efficiency Plot
+    ax[1, 1].plot(pressure_values, solar_efficiency_values)
+    ax[1, 1].set_ylabel("Efficiency (%)")
+    ax[1, 1].set_xlabel("Fluid")
+    ax[1, 1].set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure")
 
-    exergy_efficiency_plot = ax[1, 0].plot(pressure_values, exergy_efficiency_values)
-    exergy_efficiency_plot.set_ylabel("Exergy (%)")
-    exergy_efficiency_plot.set_xlabel("Fluid")
-    exergy_efficiency_plot.set_title("Exergy Vs. LP Turbine Outlet Pressure")
+    # Exergy Efficiency Plot
+    ax[1, 0].plot(pressure_values, exergy_efficiency_values)
+    ax[1, 0].set_ylabel("Exergy (%)")
+    ax[1, 0].set_xlabel("Fluid")
+    ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure")
 
 def plotting_evaporator_secondary():
     pass
