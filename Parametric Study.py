@@ -4,7 +4,9 @@ from matplotlib import pyplot
 from Configuration_1 import solve_configuration1
 from Configuration_2 import solve_configuration2
 
+def percentage(num_list):
 
+    return [x * 100 for x in num_list]
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -72,7 +74,7 @@ def plotting_fluids():
 
 def plotting_p_nuclear_condenser():
     # The pressure coming out of the turbine
-    pressure_values = np.linspace( 7e3,0.5e4, 50)
+    pressure_values = np.linspace( 7e3,0.45e4, 50)
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
@@ -84,30 +86,43 @@ def plotting_p_nuclear_condenser():
         solar_efficiency_values.append(results["solar_efficiency"])
         exergy_efficiency_values.append(results["efficiency_II"])
 
-    fig, ax = pyplot.subplots(2, 2)
+    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
     # Power plot
-    ax[0, 0].plot(pressure_values, power_values)
+    ax[0, 0].plot([x / 1000 for x in pressure_values], power_values,linewidth=2)
     ax[0, 0].set_ylabel("Power (W)")
     ax[0, 0].set_xlabel("Pressure (Pa)")
-    ax[0,0].set_title("Power Output Vs. LP Turbine Outlet Pressure")
+    ax[0,0].set_title("Power Output Vs. LP Turbine Outlet Pressure", fontsize=13)
+
 
     # Efficiency Plot
-    ax[0, 1].plot(pressure_values, efficiency_values)
+    ax[0, 1].plot([x / 1000 for x in pressure_values], percentage(efficiency_values),linewidth=2)
     ax[0, 1].set_ylabel("Efficiency (%)")
     ax[0, 1].set_xlabel("Pressure (Pa)")
-    ax[0, 1].set_title("Efficiency Vs. LP Turbine Outlet Pressure")
+    ax[0, 1].set_title("Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
 
     # Solar Efficiency Plot
-    ax[1, 1].plot(pressure_values, solar_efficiency_values)
+    ax[1, 1].plot([x / 1000 for x in pressure_values], percentage(solar_efficiency_values),linewidth=2)
     ax[1, 1].set_ylabel("Efficiency (%)")
-    ax[1, 1].set_xlabel("Fluid")
-    ax[1, 1].set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure")
+    ax[1, 1].set_xlabel("Pressure (Pa)")
+    ax[1, 1].set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
 
     # Exergy Efficiency Plot
-    ax[1, 0].plot(pressure_values, exergy_efficiency_values)
+    ax[1, 0].plot([x / 1000 for x in pressure_values], percentage(exergy_efficiency_values),linewidth=2)
     ax[1, 0].set_ylabel("Exergy (%)")
-    ax[1, 0].set_xlabel("Fluid")
-    ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure")
+    ax[1, 0].set_xlabel("Pressure (Pa)")
+    ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure", fontsize=13)
+
+    ax[0, 0].grid(True)
+    ax[0, 1].grid(True)
+    ax[1, 0].grid(True)
+    ax[1, 1].grid(True,alpha=0.3)
+
+    fig.suptitle(
+        "Effect of LP Turbine Outlet Pressure on System Performance",
+        fontsize=16,
+        fontweight="bold"
+    )
+
 
     pyplot.tight_layout()
     pyplot.show()
