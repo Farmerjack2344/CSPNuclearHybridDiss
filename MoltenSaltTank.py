@@ -1,21 +1,3 @@
-"""
-Two-tank molten salt thermal storage: mass/energy bookkeeping + dispatch logic.
-
-
-Solar Salt (60% NaNO3 / 40% KNO3) has no CoolProp fluid string, so it can't be
-placed on a TESPy connection. This module tracks the salt-side mass balance and
-state of charge (SoC) externally, using bulk cp from the MoltenSalt property
-class (Zavoico 2001 correlations).
-
- TESPy only ever sees the OIL side of the
-charge/discharge heat exchangers, via Q= specs derived from this class.
-
-Sign convention: charge() and discharge() both take/return POSITIVE heat
-quantities (W). The caller is responsible for applying the correct sign to
-the corresponding TESPy HeatExchanger/SimpleHeatExchanger Q= spec.
-"""
-
-
 class MoltenSaltTank:
     """
     Lumped two-tank molten salt storage.
@@ -28,11 +10,9 @@ class MoltenSaltTank:
         rather than hardcoding, so it stays consistent if design temps change.
     T_cold, T_hot : float
         Cold and hot tank design temperatures, K.
-        TODO: confirm against Andasol-1 literature (~565 K / ~657 K typical
         for Solar Salt at Andasol-class plants) and cite the source you use.
     total_salt_mass : float
         Total salt inventory (hot + cold), kg.
-        TODO: confirm against Andasol-1 literature for traceability.
     initial_hot_mass : float
         Salt mass already in the hot tank at t=0, kg. Default 0 (cold start).
     """
@@ -136,19 +116,16 @@ def dispatch(Q_solar, Q_design, tank, dt, min_load_fraction=0.25):
     ----------
     Q_solar : float
         Usable thermal power delivered by the solar field this timestep, W
-        (i.e. your existing Q_real, already net of optical/thermal losses;
-        clamp negative values to 0 before calling this).
+
     Q_design : float
         Power block design thermal input, W.
-        Andasol1.py) rather than hardcoding — see main script.
+
     tank : MoltenSaltTank
     dt : float
-        Timestep length, s (3600 for hourly PVGIS data).
+        Timestep length, s
     min_load_fraction : float
         Lowest fraction of Q_design the steam turbine is allowed to run at.
-        Asfand et al. validate Andasol-1 down to 25% MCR, so anything below
-        that is treated as the block being off rather than as a valid
-        operating point.
+        Asfand et al. validate Andasol-1 down to 25% MCR.
 
     Returns
     -------
@@ -179,7 +156,8 @@ def dispatch(Q_solar, Q_design, tank, dt, min_load_fraction=0.25):
 
     elif Q_solar > 0:
         Q_shortfall = Q_design - Q_solar
-        # Look before withdrawing: if even a full top-up cannot lift the block
+        # Look before withdrawing
+        # If even a full top-up cannot lift the block
         # to minimum load, the salt is better left in the hot tank.
         Q_top_up = min(Q_shortfall, tank.available_discharge(dt))
 

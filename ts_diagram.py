@@ -335,10 +335,7 @@ def main(output_dir="ModelResults"):
     )
 
     configuration_2 = {}
-    solve_configuration2(
-        verbose=False, hourly=False, results_csv=None,
-        design_point_out=configuration_2,
-    )
+    solve_configuration2(verbose=False, results_csv=None, design_point_out=configuration_2, hourly=False)
     # Configuration 2 is two cycles in one network, so it gets two diagrams: the
     # topping cycle on water and the bottoming cycle on the organic fluid.
     plot_ts_diagram(

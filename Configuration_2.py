@@ -211,7 +211,7 @@ def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network,
     Both solar exchangers are valved out of the vapour path (pr = 1) whenever the
     field has nothing to hand over. Leaving a pressure drop on an exchanger that
     transfers no heat is a pure throttling loss.
-    i.e. the plant would come out worse at night than it would with no solar equipment fitted at all.
+   
 
     :param reheat_fraction: fraction of the solar duty sent to the reheater
     :param pr_heat_in: superheater pressure ratio while it is in service
@@ -333,7 +333,7 @@ def solve_configuration2(
         secondary_fluid=orc_fluid,
         p_evaporator_secondary=10.0e5,       # Pa, ORC evaporation pressure
         p_hp_exhaust_secondary=4.5e5,        # Pa, ORC HP exhaust / reheat pressure
-        p_condenser_secondary=1.9e5,         # Pa, ORC backpressure
+        p_condenser_secondary=1.9e5,         # Pa, ORC backpressure /
         pr_orc_superheater=0.97,
         pr_orc_reheater=0.97,
         reheat_fraction=21.479 / (118.958 + 21.479),  # solar duty sent to the reheater
@@ -361,6 +361,14 @@ def solve_configuration2(
 
     """
     log = []
+    # ---------------------------------------------------------------------------
+    # NETWORK 0 -- Oil Loop
+    #
+    #
+    # In this loop the parabolic trough takes on duty with the sun and then
+    #Hands the durty off to the Storage tanks
+    # ---------------------------------------------------------------------------
+
 
     OilLoop = Network()
     OilLoop.units.set_defaults(
@@ -775,12 +783,7 @@ def solve_configuration2(
     ##############################################
     # Secondary Organic Rankine Cycle            #
     ##############################################
-    # The nuclear condenser is this cycle's boiler, so there is no separate
-    # evaporator. The cycle is left non-regenerative: the deaerator and HP heater
-    # this secondary cycle inherited from Andasol sat at saturation at 10.04 and
-    # 20.72 bar, i.e. 453 K and 487 K, and any feedwater hotter than the 372.8 K
-    # the nuclear steam condenses at stops heat crossing the nuclear condenser
-    # altogether.
+
     cycle_closer_secondary = CycleCloser("ORC Cycle Closer")
     orc_superheater = SimpleHeatExchanger("ORC superheater : Solar input")
     orc_reheater = SimpleHeatExchanger("ORC reheater : Solar input")
@@ -828,9 +831,9 @@ def solve_configuration2(
     # single most important knob in the configuration.
     c2.set_attr(fluid=secondary_fluid, p=p_evaporator_secondary, x=1, m0=11000)
     c3.set_attr(m0=11000)
-    c4.set_attr(p=p_hp_exhaust_secondary, m0=11000)
+    c4.set_attr(p=p_hp_exhaust_secondary, m0=11000)# Outlet of the Secodnary HP turbine
     c5.set_attr(m0=11000)
-    c6.set_attr(p=p_condenser_secondary, m0=11000)
+    c6.set_attr(p=p_condenser_secondary, m0=11000)# Outlet of the Secondary LP turbine
     c7.set_attr(m0=11000)
     c8.set_attr(m0=11000)
 
@@ -872,9 +875,7 @@ def solve_configuration2(
     nuclear_comps = (set(SteamCycle.comps["object"]) - orc_comps) | {nuclear_condenser}
     nuclear_conns = set(SteamCycle.conns["object"]) - orc_conns
 
-    # ---------------------------------------------------------------------------
-    # Design point check against Asfand et al. (2020), Tables 1 and 4
-    # ---------------------------------------------------------------------------
+
     def solve_design_point():
         """Put the plant on its design duty: full field, no storage exchange."""
         Q_to_steam_design = solve_oil_loop(
@@ -906,7 +907,9 @@ def solve_configuration2(
             collector_area=collector_area, optical_efficiency=optical_efficiency,
             T_htf_in=T_htf_in, mdot_htf=mdot_htf, htf=htf,
             day_of_year=day_of_year, solar_elevation_deg=solar_elevation,
-        )
+        )# Calculates the Heat duty to be assigned to the
+
+
         step = dispatch(Q_solar=Q_solar, Q_design=Q_design_thermal, tank=tank, dt=dt)
 
         # --- Oil loop side ---
