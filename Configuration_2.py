@@ -432,6 +432,7 @@ def solve_configuration2(
     # reheater on the ORC receive -oil_side_sg.Q each timestep.
     # ---------------------------------------------------------------------------
     SteamCycle = Network()
+    SteamCycle.iterinfo = False
     SteamCycle.units.set_defaults(
         temperature="K",
         pressure="Pa",
