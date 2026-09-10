@@ -300,10 +300,10 @@ def solve_configuration2(
         # --- Nuclear (topping) cycle heat input ---
         steam_generator_duty=1707e6,         # W per steam generator (two fitted)
         pr_steam_generator=0.97,
-        # --- Nuclear live steam state ---
+
         p_main_steam=5.571e6,                # Pa
         h_main_steam=2785.6e3,               # J/kg
-        # --- Nuclear HP turbine extraction / exhaust pressures ---
+
         p_hp_bleed_1=4.0e6,                  # Pa, stage-1 bleed -> reheat stage 2 shell
         p_hp_bleed_2=2.83e6,                 # Pa, stage-2 bleed -> HP FWH 2 shell
         p_hp_bleed_3=2.0e6,                  # Pa, stage-3 bleed -> HP FWH 1 shell
@@ -321,11 +321,12 @@ def solve_configuration2(
         p_lp_fwh_1_shell=0.60e6,             # Pa, top LP heater shell pressure
         ttd_u_fwh=5.0,                       # K, ttd of the condensing heaters
         ttd_l_drain_cooler=5.0,              # K, ttd of the drain coolers
-        # --- Nuclear turbomachinery efficiencies ---
+
         eta_s_hp_turbine=0.84,
         eta_s_lp_turbine=0.873,
         eta_s_condensate_pump=0.804,
         eta_s_feed_pump=0.804,
+
         # --- Topping/bottoming link: the nuclear condenser is the ORC boiler ---
         pr_nuclear_condenser_orc=0.98,       # ORC-side pressure ratio
         # --- Secondary (organic Rankine) cycle ---
@@ -344,7 +345,7 @@ def solve_configuration2(
         T_cw_out=300.15,                     # K
         p_cw=1.2e5,                          # Pa
         # --- Simulation window / output ---
-        day_number=8,
+        day_number=222,
         verbose=True,
         results_csv="ModelResults/configuration_2_hourly.csv",
         design_point_out=None,
@@ -356,14 +357,7 @@ def solve_configuration2(
                   superheater -> ORC HP turbine -> solar reheater -> ORC LP
                   turbine -> ORC condenser (cooling water) -> ORC feed pump
 
-    The solar field therefore lands on the top end of the ORC only. That is the
-    whole point of the configuration and also its weakness: it buys the ORC a
-    modest amount of superheat with 393 C oil, while the nuclear cycle pays for
-    the arrangement by running its LP turbine against ~1 bar instead of the
-    7 kPa vacuum it was designed for.
 
-    Every argument is an operating condition that moves the cycle efficiency, so
-    they can be swept without touching the network topology.
     """
     log = []
 
@@ -449,10 +443,6 @@ def solve_configuration2(
     feedwater_split = Splitter("feedwater splitter", num_out=2)
     main_steam_merge = Merge("main steam merge", num_in=2)
 
-    # The whole of the nuclear heat rejection goes into the bottoming cycle. There
-    # is no cooling water on the nuclear side: the organic fluid is the coolant,
-    # and a Condenser holds its own outlet at saturated liquid, so the duty is
-    # whatever it takes to condense the exhaust and the ORC mass flow follows.
     nuclear_condenser = Condenser("nuclear condenser / ORC evaporator")
     condenser_merge = Merge("condenser merge", num_in=2)
     HP_turbine = MultiStageExtractionTurbine("HP turbine", num_stages=4)
@@ -717,12 +707,7 @@ def solve_configuration2(
     s36.set_attr(m0=126, h0=9.93e5)
     s37.set_attr(m0=218, h0=1.706e6)
 
-    # LP bleed pressures. These are NOT the DCD values: running the nuclear cycle as
-    # a topping cycle at 1 bar backpressure puts the DCD's 0.289 / 0.086 / 0.0405 MPa
-    # extractions below the exhaust pressure, which the turbine cannot do. The ladder
-    # is respaced 0.45 / 0.30 / 0.20 MPa, i.e. Tsat 421 / 407 / 393 K, against
-    # condensate that now leaves the condenser at 373 K instead of 312 K.
-
+    # LP bleed pressures.
     s40.set_attr(p=p_lp_bleed_1, m0=104, h0=2.740e6)  # LP bleed 1 -> LP FWH 2
     s41.set_attr(p=p_lp_bleed_2, m0=1112, h0=2.700e6)  # LP stage 1 exhaust
     s42.set_attr(m0=16, h0=2.700e6)  # LP bleed 2 -> LP FWH 3
@@ -734,6 +719,7 @@ def solve_configuration2(
     # Condenser backpressure, raised from the DCD's 7 kPa so that the nuclear cycle
     # condenses at 372.8 K and can actually boil the organic fluid.
     s5.set_attr(p=p_nuclear_condenser, m0=1006, h0=2.600e6)  # LP turbine exhaust
+    # Will also effect how much power is extracted
     s6.set_attr(m0=1890, h0=2.55e6)
 
     # Feedwater now starts from 373 K condensate rather than 312 K, so every start
@@ -908,16 +894,13 @@ def solve_configuration2(
 
     P_turbine_design, P_pumps_design = solve_design_point()
 
-    # ---------------------------------------------------------------------------
-    # Annual simulation
-    # ---------------------------------------------------------------------------
     day = (24 * day_number) - 1
     eod = day + 24
 
-    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 1: day + 12]
+    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 12: day + 13]
     for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         T_amb_K = T_amb + 273.15
-        print(f"Hour_num: {hour_num}, Day pf the year: {day_of_year}, DNI: {DNI}")
+        print(f"Hour_num: {hour_num}, Day of the year: {day_of_year}, DNI: {DNI}")
         Q_solar = Q_solar_field(
             hour_num=hour_num, DNI=DNI, T_amb_K=T_amb_K,
             collector_area=collector_area, optical_efficiency=optical_efficiency,
@@ -967,7 +950,23 @@ def solve_configuration2(
         step["P_pumps"] = P_pumps + htf_pump.P.val
         step["P_net"] = P_turbine - step["P_pumps"]
         step["efficiency"] = step["P_net"] / (step["Q_sg_oil"] + 2 * steam_generator_duty)
-        step["efficiency_solar"] = (step["P_net"] - (HP_turbine_secondary.P.val + LP_turbine_secondary.P.val))/(Q_to_steam)
+        try:
+            step["solar_efficiency"] = (step["P_net"] - (HP_turbine_secondary.P.val + LP_turbine_secondary.P.val))/(Q_to_steam)
+        except ZeroDivisionError:
+            step["solar_efficiency"] = "No Solar Input"
+
+        Q_nuclear = 1707e6 * 2
+        T_in = 273.15 + 324.7
+        T_out = 273.15 + 281.835
+        T_nuclear = (T_in - T_out) / math.log(T_in / T_out)
+
+        step["ex_nuclear"] = Q_nuclear * (1 - (T_amb_K/T_nuclear))
+        if step['Q_sg_oil'] > 0:
+            step["ex_solar"] = step['Q_sg_oil'] * (1 - T_amb_K / step['T_sg_oil_in'])
+        else:
+            step["ex_solar"] = 0.0
+        step["efficiency_II"] = step["P_net"] / (step["ex_nuclear"] + step["ex_solar"])
+
         log.append(step)
 
         if verbose:
@@ -986,9 +985,13 @@ def solve_configuration2(
             print(banner("Oil loop", Fore.GREEN))
             OilLoop.print_results()
 
-    results = pd.DataFrame(log)
-    if results_csv is not None:
-        results.to_csv(results_csv, index=False)
+    if hourly:
+        results = pd.DataFrame(log)
+        if results_csv is not None:
+            results.to_csv(results_csv, index=False)
+    else:
+        results = step
+
     if log:
         print("\n" * 5)
         print(f"Turbine power: {step["P_turbine"]}")
@@ -1005,11 +1008,12 @@ def solve_configuration2(
 
 if __name__ == "__main__":
     results = solve_configuration2(hourly=False)
+    print(results)
 
-    # ---------------------------------------------------------------------------
-    # Annual summary
-    # ---------------------------------------------------------------------------
-    hours = dt / 3600
-    to_GWh = hours / 1e9
-    Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
-    operating = results["P_turbine"] > 0
+    # # ---------------------------------------------------------------------------
+    # # Annual summary
+    # # ---------------------------------------------------------------------------
+    # hours = dt / 3600
+    # to_GWh = hours / 1e9
+    # Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
+    # operating = results["P_turbine"] > 0

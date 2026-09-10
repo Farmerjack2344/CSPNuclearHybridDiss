@@ -645,8 +645,7 @@ def solve_configuration1(
     steam_generator_1.set_attr(pr=pr_steam_generator, Q=steam_generator_duty)
     steam_generator_2.set_attr(Q=steam_generator_duty)
 
-    # In-service pressure ratios. solve_power_block resets these to 1 whenever the
-    # field has no duty to hand over, which valves the pair out of the steam path.
+    
     super_heater.set_attr(pr=pr_solar_superheater)
     interstage_heater_0.set_attr(pr=pr_solar_reheater)
 
