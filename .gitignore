@@ -9,6 +9,7 @@ status.txt
 connections.txt
 rankine.py
 optimise_example.py
+/ModelResults
 
 # OpenModelica build products
 modelica/AP1000
