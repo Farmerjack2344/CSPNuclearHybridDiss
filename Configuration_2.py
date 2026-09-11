@@ -344,8 +344,11 @@ def solve_configuration2(
         T_cw_in=288.15,                      # K
         T_cw_out=300.15,                     # K
         p_cw=1.2e5,                          # Pa
+        # --- Solar section rating ---
+        Q_design_thermal=Q_design_thermal,   # W, power-block design thermal input
         # --- Simulation window / output ---
         day_number=222,
+        n_days=1,
         verbose=True,
         results_csv="ModelResults/configuration_2_hourly.csv",
         design_point_out=None,
@@ -895,10 +898,15 @@ def solve_configuration2(
 
     P_turbine_design, P_pumps_design = solve_design_point()
 
-    day = (24 * day_number) - 1
-    eod = day + 24
+    # Cold-start the store for every call so parametric runs cannot inherit SoC.
+    tank.m_hot = 0.0
+    tank.m_cold = tank.m_total
 
-    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 12: day + 13]
+    start = max(24 * day_number - 1, 0)
+    if hourly:
+        hourly_rows = DNI_values[start:start + 24 * n_days]
+    else:
+        hourly_rows = DNI_values[start + 12:start + 13]
     for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
         T_amb_K = T_amb + 273.15
         if print_results:
@@ -957,7 +965,7 @@ def solve_configuration2(
         try:
             step["solar_efficiency"] = (step["P_net"] - (HP_turbine_secondary.P.val + LP_turbine_secondary.P.val))/(Q_to_steam)
         except ZeroDivisionError:
-            step["solar_efficiency"] = "No Solar Input"
+            step["solar_efficiency"] = float("nan")
 
         Q_nuclear = 1707e6 * 2
         T_in = 273.15 + 324.7
