@@ -724,5 +724,5 @@ def plotting_Q_design_thermal(
 
 if __name__ == "__main__":
     #plotting_p_nuclear_condenser_2()
-    #plotting_HP_LP_Turbine_outlets_2()
-    plotting_Q_design_thermal()
+    plotting_HP_LP_Turbine_outlets_2()
+    #plotting_Q_design_thermal()
