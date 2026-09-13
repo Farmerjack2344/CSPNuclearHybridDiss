@@ -158,8 +158,6 @@ mdot_htf = 618.1              # kg/s, design HTF flow (paper Table 1)
 DNI_values = meteorolgoical_values()
 dt = 3600  # s, hourly PVGIS data
 
-log = []
-
 # ---------------------------------------------------------------------------
 # NETWORK 1 -- Oil loop (Therminol VP-1)
 #
@@ -187,62 +185,8 @@ T_oil_from_storage = T_hot_salt - 5.0  # oil leaving the discharge HX, K
 M_MIN = 1.0                      # kg/s trickle flow kept in idle branches
 Q_MIN_BRANCH = 1e5               # W below which a branch counts as idle
 
-OilLoop = Network()
-OilLoop.units.set_defaults(
-    temperature="K", pressure="Pa", pressure_difference="Pa",
-    enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
-)
-OilLoop.iterinfo = False
-
-cycle_closer_oil = CycleCloser("Oil Cycle Closer")
-htf_pump = Pump("HTF circulation pump")
-splitter_cold = Splitter("Cold header splitter", num_out=2)
-solar_field = ParabolicTrough("Solar Field")
-splitter_hot = Splitter("Hot header splitter", num_out=2)
-charge_hx_oil = SimpleHeatExchanger("Charge HX (oil side)")
-discharge_hx_oil = SimpleHeatExchanger("Discharge HX (oil side)")
-merge_hot = Merge("Hot header merge", num_in=2)
-oil_side_sg = SimpleHeatExchanger("Steam Generator (oil side)")
-merge_cold = Merge("Cold header merge", num_in=2)
-
-o1 = Connection(cycle_closer_oil, "out1", htf_pump, "in1", label="o1_closer_to_pump")
-o2 = Connection(htf_pump, "out1", splitter_cold, "in1", label="o2_pump_to_cold_splitter")
-o3 = Connection(splitter_cold, "out1", solar_field, "in1", label="o3_cold_to_field")
-o4 = Connection(solar_field, "out1", splitter_hot, "in1", label="o4_field_to_hot_splitter")
-o5 = Connection(splitter_hot, "out1", merge_hot, "in1", label="o5_field_direct_to_sg")
-o6 = Connection(splitter_hot, "out2", charge_hx_oil, "in1", label="o6_hot_to_charge")
-o7 = Connection(charge_hx_oil, "out1", merge_cold, "in2", label="o7_charge_to_cold_header")
-o8 = Connection(splitter_cold, "out2", discharge_hx_oil, "in1", label="o8_cold_to_discharge")
-o9 = Connection(discharge_hx_oil, "out1", merge_hot, "in2", label="o9_discharge_to_sg")
-o10 = Connection(merge_hot, "out1", oil_side_sg, "in1", label="o10_merge_to_sg")
-o11 = Connection(oil_side_sg, "out1", merge_cold, "in1", label="o11_sg_to_cold_header")
-o12 = Connection(merge_cold, "out1", cycle_closer_oil, "in1", label="o12_cold_header_to_closer")
-
-OilLoop.add_conns(o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, o11, o12)
-
-# The cold header is held at 28 bar so that after the field pressure drop the
-# hot end still sits well above the ~10.6 bar vapour pressure of Therminol
-# VP-1 at 393 C. A collector loop drops roughly 10 bar, which is what makes
-# HTF circulation a MW-scale parasitic rather than a rounding error.
-o1.set_attr(fluid=oil_fluid, p=28e5, T=T_oil_cold)
-
-htf_pump.set_attr(eta_s=0.8)
-solar_field.set_attr(A=collector_area,pr=0.65)
-oil_side_sg.set_attr(pr=0.95)
-# The storage HXs sit in parallel branches whose inlet and outlet pressures are
-# both pinned by the splitters/merges, so their pr has to stay free: giving them
-# one as well would close a pressure loop and over-determine the network.
-
 
 def set_duty_branch(m_conn, T_conn, component, Q, T_out):
-    """Drive a branch from its duty, or park it at a trickle flow when idle.
-
-    An active branch gets Q and its outlet temperature, leaving the mass flow to
-    be solved. An idle branch would otherwise need m = 0, which the solver
-    cannot handle, so it gets a small fixed flow and no duty instead. Duties
-    below Q_MIN_BRANCH are dropped for the same reason: they would ask for a
-    mass flow small enough to upset the solver, for negligible energy.
-    """
     if abs(Q) > Q_MIN_BRANCH:
         component.set_attr(Q=Q)
         m_conn.set_attr(m=None)
@@ -252,251 +196,325 @@ def set_duty_branch(m_conn, T_conn, component, Q, T_out):
         T_conn.set_attr(T=None)
         m_conn.set_attr(m=M_MIN)
 
-# ---------------------------------------------------------------------------
-# NETWORK 2 -- Steam Rankine cycle (power block)
-# Physically separate fluid loop from the oil loop above. The two are
-# linked ONLY by matching duty: steam_side_sg.Q = -oil_side_sg.Q each
-# timestep (energy in = energy out, no shared TESPy connection since they
-# are different fluids in different networks).
-#
-# Andasol-1 regenerates feed water through three LP heaters, a deaerator and
-# two HP heaters, reaching 250 C before the boiler. That train is lumped here
-# into two open heaters: a deaerator on an LP extraction at 10.04 bar (180 C,
-# the paper's deaerator state) and a second heater on the HP exhaust at
-# 20.72 bar, which takes feed water to about 214 C. Without any regeneration
-# the boiler would be fed at condenser temperature, which cannot be squared
-# with an HTF loop that returns to the field at 293 C. Keeping the larger of
-# the two extractions downstream of the reheater also matters: bleed it all off
-# the HP exhaust instead and the reheater has so little steam to heat that its
-# outlet comes out hotter than the 393 C oil supposedly heating it.
-# ---------------------------------------------------------------------------
-SteamCycle = Network()
-SteamCycle.units.set_defaults(
-    temperature="K", pressure="Pa", pressure_difference="Pa",
-    enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
-)
-SteamCycle.iterinfo = False
 
-cycle_closer_steam = CycleCloser("Steam Cycle Closer")
-steam_side_sg = SimpleHeatExchanger("Steam Generator (steam side)")
-HP_turbine = SteamTurbine("HP Turbine")
-hp_extraction = Splitter("HP exhaust extraction", num_out=2)
-steam_side_reheater = SimpleHeatExchanger("Reheater")
-LP_turbine_1 = SteamTurbine("LP Turbine (to extraction)")
-lp_extraction = Splitter("LP extraction", num_out=2)
-LP_turbine_2 = SteamTurbine("LP Turbine (to condenser)")
-condenser = Condenser("Condenser")
-condensate_pump = Pump("Condensate Pump")
-deaerator = Merge("Deaerator", num_in=2)
-booster_pump = Pump("Booster Pump")
-hp_heater = Merge("HP Feed Water Heater", num_in=2)
-feed_pump = Pump("Feed Water Pump")
-cooling_water_in = Source("Cooling water in")
-cooling_water_out = Sink("Cooling water out")
+def solve_andasol1(
+        T_field_out=T_oil_hot,
+        T_cold_header=T_oil_cold,
+        T_discharge_out=T_oil_from_storage,
+        p_cold_header=28e5,
+        Q_design_thermal=Q_design_thermal,
+        day_number=222,
+        n_days=1,
+        hourly=True,
+        verbose=True,
+        print_results=True,
+        results_csv="ModelResults/andasol1_hourly.csv",
+):
+    log = []
+    tank.m_hot = 0.0
+    tank.m_cold = tank.m_total
 
-s1 = Connection(cycle_closer_steam, "out1", steam_side_sg, "in1",
-                label="s1_closer_to_sg")
-s2 = Connection(steam_side_sg, "out1", HP_turbine, "in1",
-                label=state(1, "Inlet of HP steam turbine", mark=True))
-s3 = Connection(HP_turbine, "out1", hp_extraction, "in1",
-                label=state(2, "Outlet of HP steam turbine", mark=True))
-s4 = Connection(hp_extraction, "out1", steam_side_reheater, "in1",
-                label="s4_to_reheater")
-s5 = Connection(steam_side_reheater, "out1", LP_turbine_1, "in1",
-                label=state(3, "Inlet of LP steam turbine", mark=True))
-s6 = Connection(LP_turbine_1, "out1", lp_extraction, "in1",
-                label="s6_lp_extraction_point")
-s7 = Connection(lp_extraction, "out1", LP_turbine_2, "in1",
-                label="s7_to_lp_stage_2")
-s8 = Connection(LP_turbine_2, "out1", condenser, "in1",
-                label=state(4, "Outlet of LP steam turbine", mark=True))
-s9 = Connection(condenser, "out1", condensate_pump, "in1",
-                label=state(5, "Outlet of condenser", mark=True))
-s10 = Connection(condensate_pump, "out1", deaerator, "in1",
-                label=state(6, "Discharge of LP feed-water pump", mark=True))
-s11 = Connection(lp_extraction, "out2", deaerator, "in2",
-                label="s11_extraction_to_dea")
-s12 = Connection(deaerator, "out1", booster_pump, "in1",
-                label=state(10, "Outlet of deaerator", mark=True))
-s13 = Connection(booster_pump, "out1", hp_heater, "in1",
-                label=state(11, "Discharge of HP feed-water pump", mark=True))
-s14 = Connection(hp_extraction, "out2", hp_heater, "in2",
-                label="s14_extraction_to_hp_heater")
-s15 = Connection(hp_heater, "out1", feed_pump, "in1",
-                label=state(12, "Outlet of HP feed-water heater 4", mark=True))
-s16 = Connection(feed_pump, "out1", cycle_closer_steam, "in1",
-                label=state(13, "Outlet of HP feed-water heater 5", mark=True))
-s17 = Connection(cooling_water_in, "out1", condenser, "in2",
-                label=state(14, "Cooling water at condenser inlet", mark=True))
-s18 = Connection(condenser, "out2", cooling_water_out, "in1",
-                label=state(15, "Cooling water at condenser outlet", mark=True))
-
-SteamCycle.add_conns(s1, s2, s3, s4, s5, s6, s7, s8, s9, s10,
-                     s11, s12, s13, s14, s15, s16, s17, s18)
-
-
-HP_turbine.set_attr(eta_s=0.848)
-LP_turbine_1.set_attr(eta_s=0.822)
-LP_turbine_2.set_attr(eta_s=0.822)
-steam_side_sg.set_attr(pr=0.95)
-condenser.set_attr(pr1=1, pr2=0.98)
-condensate_pump.set_attr(eta_s=0.9)
-booster_pump.set_attr(eta_s=0.9)
-feed_pump.set_attr(eta_s=0.9)
-
-# Live steam T, p (hence h) are the paper HP-inlet state. Mass flow is the
-# specification that sizes the cycle: steam-generator Q is m*(h_live - h_fw),
-# so setting both over-determines the boiler. Leave Q free; TESPy will report it.
-M_LIVE_DESIGN = 60.935  # kg/s, Siemens / Asfand Table 4
-s2.set_attr(fluid=rankine_cycle_fluid, p=105e5, T=654.15, m=M_LIVE_DESIGN,
-            h0=3.0202e6)
-s3.set_attr(p=20.72e5, h0=2.7281e6)
-
-# Reheat outlet T closes the reheater. Q_rh = m_rh*(h_s5 - h_s4), so T and Q
-# together would over-specify it the same way.
-s5.set_attr(p=18.29e5, T=653.15, h0=3.2072e6)
-s6.set_attr(p=10.04e5)
-s8.set_attr(p=0.065e5, h0=2.3059e6)
-
-# Saturated liquid out of each open heater is what sizes its extraction: the
-# solver picks the bled steam flow that exactly saturates the feed water.
-s12.set_attr(x=0)
-s15.set_attr(x=0)
-
-# Starting guesses on the extraction branches once live-steam flow is pinned.
-s11.set_attr(m0=12.0)
-s14.set_attr(m0=6.0)
-
-s17.set_attr(fluid=cooling_fluid, m=2502, T=300.15, p=1.2e5)
-
-def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage):
-    """Solve the HTF loop for one timestep and return the duty it hands over."""
-    set_duty_branch(o3, o4, solar_field, Q_field, T_oil_hot)
-    set_duty_branch(o6, o7, charge_hx_oil, -Q_to_storage, T_oil_cold)
-    set_duty_branch(o8, o9, discharge_hx_oil, Q_from_storage, T_oil_from_storage)
-    OilLoop.solve("design")
-    return max(-oil_side_sg.Q.val, 0.0)
-
-
-def solve_power_block(Q_to_steam):
-    """Solve the steam cycle against the duty the HTF loop gave up.
-
-    Live-steam mass flow is the handle, not boiler Q. The oil-side duty only
-    scales m off the 60.935 kg/s design point; SG and reheater duties then
-    follow from the fixed states.
-
-    Returns gross turbine output and the feed water pumping parasitics, both W.
-    """
-    s2.set_attr(m=M_LIVE_DESIGN * Q_to_steam / Q_design_thermal)
-    steam_side_sg.set_attr(Q=None)
-    steam_side_reheater.set_attr(Q=None)
-    SteamCycle.solve("design")
-    P_turbine = -(HP_turbine.P.val + LP_turbine_1.P.val + LP_turbine_2.P.val)
-    P_pumps = condensate_pump.P.val + booster_pump.P.val + feed_pump.P.val
-    return P_turbine, P_pumps
-
-
-# ---------------------------------------------------------------------------
-# Design point check against Asfand et al. (2020), Tables 1 and 4
-# ---------------------------------------------------------------------------
-solve_oil_loop(Q_design_thermal, 0.0, 0.0)
-P_turbine_design, P_pumps_design = solve_power_block(Q_design_thermal)
-
-print("Design point vs. Asfand et al. (2020) Andasol-1 flowsheet")
-print(f"{'quantity':<32}{'model':>12}{'paper':>12}")
-for label, model_value, paper_value in [
-    ("HTF mass flow, kg/s", o3.m.val, 618.1),
-    ("HTF field outlet, C", o4.T.val - 273.15, 393.0),
-    ("HTF return to field, C", o12.T.val - 273.15, 293.0),
-    ("Boiler duty, MW", steam_side_sg.Q.val / 1e6, 118.958),
-    ("Reheater duty, MW", steam_side_reheater.Q.val / 1e6, 21.479),
-    ("Live steam flow, kg/s", s2.m.val, 60.935),
-    ("HP turbine outlet, C", s3.T.val - 273.15, 214.2),
-    ("LP turbine inlet, C", s5.T.val - 273.15, 380.0),
-    ("Deaerator outlet, C", s12.T.val - 273.15, 180.1),
-    ("Feed water to boiler, C", s16.T.val - 273.15, 250.4),
-    ("Condenser steam flow, kg/s", s8.m.val, 38.902),
-    ("Condenser duty, MW", -condenser.Q.val / 1e6, 83.597),
-    ("Cooling water outlet, C", s18.T.val - 273.15, 35.0),
-    ("Gross turbine output, MW", P_turbine_design / 1e6, 55.0),
-]:
-    print(f"{label:<32}{model_value:>12.2f}{paper_value:>12.2f}")
-print()
-
-# ---------------------------------------------------------------------------
-# Annual simulation
-# ---------------------------------------------------------------------------
-for hour_num, day_of_year, DNI, T_amb, solar_elevation in DNI_values[202:232]:
-    T_amb_K = T_amb + 273.15
-
-    Q_solar = Q_solar_field(
-        hour_num=hour_num, DNI=DNI, T_amb_K=T_amb_K,
-        collector_area=collector_area, optical_efficiency=optical_efficiency,
-        T_htf_in=T_htf_in, mdot_htf=mdot_htf, htf=htf,
-        day_of_year=day_of_year, solar_elevation_deg=solar_elevation,
+    OilLoop = Network()
+    OilLoop.units.set_defaults(
+        temperature="K", pressure="Pa", pressure_difference="Pa",
+        enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
     )
-    step = dispatch(Q_solar=Q_solar, Q_design=Q_design_thermal, tank=tank, dt=dt)
+    OilLoop.iterinfo = False
 
-    # --- Oil loop side ---
-    # The field carries only the heat the plant can actually use; the rest is
-    # defocused, otherwise a full hot tank would push its surplus into the
-    # power block.
-    Q_to_steam = solve_oil_loop(
-        Q_solar - step["Q_defocus"], step["Q_to_storage"], step["Q_from_storage"]
+    cycle_closer_oil = CycleCloser("Oil Cycle Closer")
+    htf_pump = Pump("HTF circulation pump")
+    splitter_cold = Splitter("Cold header splitter", num_out=2)
+    solar_field = ParabolicTrough("Solar Field")
+    splitter_hot = Splitter("Hot header splitter", num_out=2)
+    charge_hx_oil = SimpleHeatExchanger("Charge HX (oil side)")
+    discharge_hx_oil = SimpleHeatExchanger("Discharge HX (oil side)")
+    merge_hot = Merge("Hot header merge", num_in=2)
+    oil_side_sg = SimpleHeatExchanger("Steam Generator (oil side)")
+    merge_cold = Merge("Cold header merge", num_in=2)
+
+    o1 = Connection(cycle_closer_oil, "out1", htf_pump, "in1", label="o1_closer_to_pump")
+    o2 = Connection(htf_pump, "out1", splitter_cold, "in1", label="o2_pump_to_cold_splitter")
+    o3 = Connection(splitter_cold, "out1", solar_field, "in1", label="o3_cold_to_field")
+    o4 = Connection(solar_field, "out1", splitter_hot, "in1", label="o4_field_to_hot_splitter")
+    o5 = Connection(splitter_hot, "out1", merge_hot, "in1", label="o5_field_direct_to_sg")
+    o6 = Connection(splitter_hot, "out2", charge_hx_oil, "in1", label="o6_hot_to_charge")
+    o7 = Connection(charge_hx_oil, "out1", merge_cold, "in2", label="o7_charge_to_cold_header")
+    o8 = Connection(splitter_cold, "out2", discharge_hx_oil, "in1", label="o8_cold_to_discharge")
+    o9 = Connection(discharge_hx_oil, "out1", merge_hot, "in2", label="o9_discharge_to_sg")
+    o10 = Connection(merge_hot, "out1", oil_side_sg, "in1", label="o10_merge_to_sg")
+    o11 = Connection(oil_side_sg, "out1", merge_cold, "in1", label="o11_sg_to_cold_header")
+    o12 = Connection(merge_cold, "out1", cycle_closer_oil, "in1", label="o12_cold_header_to_closer")
+
+    OilLoop.add_conns(o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, o11, o12)
+
+    # The cold header is held at 28 bar so that after the field pressure drop the
+    # hot end still sits well above the ~10.6 bar vapour pressure of Therminol
+    # VP-1 at 393 C. A collector loop drops roughly 10 bar, which is what makes
+    # HTF circulation a MW-scale parasitic rather than a rounding error.
+    o1.set_attr(fluid=oil_fluid, p=p_cold_header, T=T_cold_header)
+
+    htf_pump.set_attr(eta_s=0.8)
+    solar_field.set_attr(A=collector_area,pr=0.65)
+    oil_side_sg.set_attr(pr=0.95)
+    # The storage HXs sit in parallel branches whose inlet and outlet pressures are
+    # both pinned by the splitters/merges, so their pr has to stay free: giving them
+    # one as well would close a pressure loop and over-determine the network.
+
+    # ---------------------------------------------------------------------------
+    # NETWORK 2 -- Steam Rankine cycle (power block)
+    # Physically separate fluid loop from the oil loop above. The two are
+    # linked ONLY by matching duty: steam_side_sg.Q = -oil_side_sg.Q each
+    # timestep (energy in = energy out, no shared TESPy connection since they
+    # are different fluids in different networks).
+    #
+    # Andasol-1 regenerates feed water through three LP heaters, a deaerator and
+    # two HP heaters, reaching 250 C before the boiler. That train is lumped here
+    # into two open heaters: a deaerator on an LP extraction at 10.04 bar (180 C,
+    # the paper's deaerator state) and a second heater on the HP exhaust at
+    # 20.72 bar, which takes feed water to about 214 C. Without any regeneration
+    # the boiler would be fed at condenser temperature, which cannot be squared
+    # with an HTF loop that returns to the field at 293 C. Keeping the larger of
+    # the two extractions downstream of the reheater also matters: bleed it all off
+    # the HP exhaust instead and the reheater has so little steam to heat that its
+    # outlet comes out hotter than the 393 C oil supposedly heating it.
+    # ---------------------------------------------------------------------------
+    SteamCycle = Network()
+    SteamCycle.units.set_defaults(
+        temperature="K", pressure="Pa", pressure_difference="Pa",
+        enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
     )
+    SteamCycle.iterinfo = False
 
-    # --- Steam cycle side ---
-    # Matched duty: exactly what the oil side gave up, the steam side
-    # receives. This is the only coupling between the two networks.
-    if step["Q_to_pb"] > 0 and Q_to_steam > Q_MIN_BRANCH:
-        P_turbine, P_pumps = solve_power_block(Q_to_steam)
-        m_steam = s2.m.val
+    cycle_closer_steam = CycleCloser("Steam Cycle Closer")
+    steam_side_sg = SimpleHeatExchanger("Steam Generator (steam side)")
+    HP_turbine = SteamTurbine("HP Turbine")
+    hp_extraction = Splitter("HP exhaust extraction", num_out=2)
+    steam_side_reheater = SimpleHeatExchanger("Reheater")
+    LP_turbine_1 = SteamTurbine("LP Turbine (to extraction)")
+    lp_extraction = Splitter("LP extraction", num_out=2)
+    LP_turbine_2 = SteamTurbine("LP Turbine (to condenser)")
+    condenser = Condenser("Condenser")
+    condensate_pump = Pump("Condensate Pump")
+    deaerator = Merge("Deaerator", num_in=2)
+    booster_pump = Pump("Booster Pump")
+    hp_heater = Merge("HP Feed Water Heater", num_in=2)
+    feed_pump = Pump("Feed Water Pump")
+    cooling_water_in = Source("Cooling water in")
+    cooling_water_out = Sink("Cooling water out")
+
+    s1 = Connection(cycle_closer_steam, "out1", steam_side_sg, "in1",
+                    label="s1_closer_to_sg")
+    s2 = Connection(steam_side_sg, "out1", HP_turbine, "in1",
+                    label=state(1, "Inlet of HP steam turbine", mark=True))
+    s3 = Connection(HP_turbine, "out1", hp_extraction, "in1",
+                    label=state(2, "Outlet of HP steam turbine", mark=True))
+    s4 = Connection(hp_extraction, "out1", steam_side_reheater, "in1",
+                    label="s4_to_reheater")
+    s5 = Connection(steam_side_reheater, "out1", LP_turbine_1, "in1",
+                    label=state(3, "Inlet of LP steam turbine", mark=True))
+    s6 = Connection(LP_turbine_1, "out1", lp_extraction, "in1",
+                    label="s6_lp_extraction_point")
+    s7 = Connection(lp_extraction, "out1", LP_turbine_2, "in1",
+                    label="s7_to_lp_stage_2")
+    s8 = Connection(LP_turbine_2, "out1", condenser, "in1",
+                    label=state(4, "Outlet of LP steam turbine", mark=True))
+    s9 = Connection(condenser, "out1", condensate_pump, "in1",
+                    label=state(5, "Outlet of condenser", mark=True))
+    s10 = Connection(condensate_pump, "out1", deaerator, "in1",
+                    label=state(6, "Discharge of LP feed-water pump", mark=True))
+    s11 = Connection(lp_extraction, "out2", deaerator, "in2",
+                    label="s11_extraction_to_dea")
+    s12 = Connection(deaerator, "out1", booster_pump, "in1",
+                    label=state(10, "Outlet of deaerator", mark=True))
+    s13 = Connection(booster_pump, "out1", hp_heater, "in1",
+                    label=state(11, "Discharge of HP feed-water pump", mark=True))
+    s14 = Connection(hp_extraction, "out2", hp_heater, "in2",
+                    label="s14_extraction_to_hp_heater")
+    s15 = Connection(hp_heater, "out1", feed_pump, "in1",
+                    label=state(12, "Outlet of HP feed-water heater 4", mark=True))
+    s16 = Connection(feed_pump, "out1", cycle_closer_steam, "in1",
+                    label=state(13, "Outlet of HP feed-water heater 5", mark=True))
+    s17 = Connection(cooling_water_in, "out1", condenser, "in2",
+                    label=state(14, "Cooling water at condenser inlet", mark=True))
+    s18 = Connection(condenser, "out2", cooling_water_out, "in1",
+                    label=state(15, "Cooling water at condenser outlet", mark=True))
+
+    SteamCycle.add_conns(s1, s2, s3, s4, s5, s6, s7, s8, s9, s10,
+                         s11, s12, s13, s14, s15, s16, s17, s18)
+
+
+    HP_turbine.set_attr(eta_s=0.848)
+    LP_turbine_1.set_attr(eta_s=0.822)
+    LP_turbine_2.set_attr(eta_s=0.822)
+    steam_side_sg.set_attr(pr=0.95)
+    condenser.set_attr(pr1=1, pr2=0.98)
+    condensate_pump.set_attr(eta_s=0.9)
+    booster_pump.set_attr(eta_s=0.9)
+    feed_pump.set_attr(eta_s=0.9)
+
+    # Live steam T, p (hence h) are the paper HP-inlet state. Mass flow is the
+    # specification that sizes the cycle: steam-generator Q is m*(h_live - h_fw),
+    # so setting both over-determines the boiler. Leave Q free; TESPy will report it.
+    M_LIVE_DESIGN = 60.935  # kg/s, Siemens / Asfand Table 4
+    s2.set_attr(fluid=rankine_cycle_fluid, p=105e5, T=654.15, m=M_LIVE_DESIGN,
+                h0=3.0202e6)
+    s3.set_attr(p=20.72e5, h0=2.7281e6)
+
+    # Reheat outlet T closes the reheater. Q_rh = m_rh*(h_s5 - h_s4), so T and Q
+    # together would over-specify it the same way.
+    s5.set_attr(p=18.29e5, T=653.15, h0=3.2072e6)
+    s6.set_attr(p=10.04e5)
+    s8.set_attr(p=0.065e5, h0=2.3059e6)
+
+    # Saturated liquid out of each open heater is what sizes its extraction: the
+    # solver picks the bled steam flow that exactly saturates the feed water.
+    s12.set_attr(x=0)
+    s15.set_attr(x=0)
+
+    # Starting guesses on the extraction branches once live-steam flow is pinned.
+    s11.set_attr(m0=12.0)
+    s14.set_attr(m0=6.0)
+
+    s17.set_attr(fluid=cooling_fluid, m=2502, T=300.15, p=1.2e5)
+
+    def solve_oil_loop(Q_field, Q_to_storage, Q_from_storage):
+        set_duty_branch(o3, o4, solar_field, Q_field, T_field_out)
+        set_duty_branch(o6, o7, charge_hx_oil, -Q_to_storage, T_cold_header)
+        set_duty_branch(o8, o9, discharge_hx_oil, Q_from_storage, T_discharge_out)
+        OilLoop.solve("design")
+        return max(-oil_side_sg.Q.val, 0.0)
+
+
+    def solve_power_block(Q_to_steam):
+        """Solve the steam cycle against the duty the HTF loop gave up.
+
+        Live-steam mass flow is the handle, not boiler Q. The oil-side duty only
+        scales m off the 60.935 kg/s design point; SG and reheater duties then
+        follow from the fixed states.
+
+        Returns gross turbine output and the feed water pumping parasitics, both W.
+        """
+        s2.set_attr(m=M_LIVE_DESIGN * Q_to_steam / Q_design_thermal)
+        steam_side_sg.set_attr(Q=None)
+        steam_side_reheater.set_attr(Q=None)
+        SteamCycle.solve("design")
+        P_turbine = -(HP_turbine.P.val + LP_turbine_1.P.val + LP_turbine_2.P.val)
+        P_pumps = condensate_pump.P.val + booster_pump.P.val + feed_pump.P.val
+        return P_turbine, P_pumps
+
+
+    # ---------------------------------------------------------------------------
+    # Design point check against Asfand et al. (2020), Tables 1 and 4
+    # ---------------------------------------------------------------------------
+    solve_oil_loop(Q_design_thermal, 0.0, 0.0)
+    P_turbine_design, P_pumps_design = solve_power_block(Q_design_thermal)
+
+    if print_results:
+        print("Design point vs. Asfand et al. (2020) Andasol-1 flowsheet")
+        print(f"{'quantity':<32}{'model':>12}{'paper':>12}")
+        for label, model_value, paper_value in [
+            ("HTF mass flow, kg/s", o3.m.val, 618.1),
+            ("HTF field outlet, C", o4.T.val - 273.15, 393.0),
+            ("HTF return to field, C", o12.T.val - 273.15, 293.0),
+            ("Boiler duty, MW", steam_side_sg.Q.val / 1e6, 118.958),
+            ("Reheater duty, MW", steam_side_reheater.Q.val / 1e6, 21.479),
+            ("Live steam flow, kg/s", s2.m.val, 60.935),
+            ("HP turbine outlet, C", s3.T.val - 273.15, 214.2),
+            ("LP turbine inlet, C", s5.T.val - 273.15, 380.0),
+            ("Deaerator outlet, C", s12.T.val - 273.15, 180.1),
+            ("Feed water to boiler, C", s16.T.val - 273.15, 250.4),
+            ("Condenser steam flow, kg/s", s8.m.val, 38.902),
+            ("Condenser duty, MW", -condenser.Q.val / 1e6, 83.597),
+            ("Cooling water outlet, C", s18.T.val - 273.15, 35.0),
+            ("Gross turbine output, MW", P_turbine_design / 1e6, 55.0),
+        ]:
+            print(f"{label:<32}{model_value:>12.2f}{paper_value:>12.2f}")
+        print()
+
+    start = max(24 * day_number - 1, 0)
+    if hourly:
+        hourly_rows = DNI_values[start:start + 24 * n_days]
     else:
-        # The block is off: solving it would drive the steam mass flow to zero
-        # and the network with it.
-        Q_to_steam = 0.0
-        P_turbine, P_pumps, m_steam = 0.0, 0.0, 0.0
+        hourly_rows = DNI_values[start + 12:start + 13]
+    for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
+        T_amb_K = T_amb + 273.15
 
-    step["hour"] = hour_num
-    step["day_of_year"] = day_of_year
-    step["DNI"] = DNI
-    step["T_amb"] = T_amb
-    step["Q_sg_oil"] = Q_to_steam
-    step["m_oil_field"] = o3.m.val
-    step["T_sg_oil_in"] = o10.T.val
-    step["m_steam"] = m_steam
-    step["P_turbine"] = P_turbine
-    step["P_net"] = P_turbine - P_pumps - htf_pump.P.val
-    log.append(step)
+        Q_solar = Q_solar_field(
+            hour_num=hour_num, DNI=DNI, T_amb_K=T_amb_K,
+            collector_area=collector_area, optical_efficiency=optical_efficiency,
+            T_htf_in=T_htf_in, mdot_htf=mdot_htf, htf=htf,
+            day_of_year=day_of_year, solar_elevation_deg=solar_elevation,
+        )
+        step = dispatch(Q_solar=Q_solar, Q_design=Q_design_thermal, tank=tank, dt=dt)
 
-results = pd.DataFrame(log)
-results.to_csv("ModelResults/andasol1_hourly.csv", index=False)
+        Q_to_steam = solve_oil_loop(
+            Q_solar - step["Q_defocus"], step["Q_to_storage"], step["Q_from_storage"]
+        )
 
-# ---------------------------------------------------------------------------
-# Annual summary
-# ---------------------------------------------------------------------------
-hours = dt / 3600
-to_GWh = hours / 1e9
-Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
-operating = results["P_turbine"] > 0
+        if step["Q_to_pb"] > 0 and Q_to_steam > Q_MIN_BRANCH:
+            P_turbine, P_pumps = solve_power_block(Q_to_steam)
+            m_steam = s2.m.val
+        else:
+            Q_to_steam = 0.0
+            P_turbine, P_pumps, m_steam = 0.0, 0.0, 0.0
 
-print("Annual results")
-print(f"  DNI on the aperture          {Q_incident:8.1f} GWh")
-print(f"  Collected by the field       {results['Q_solar'].sum() * to_GWh:8.1f} GWh")
-print(f"  Defocused                    {results['Q_defocus'].sum() * to_GWh:8.1f} GWh")
-print(f"  Delivered to the power block {results['Q_to_pb'].sum() * to_GWh:8.1f} GWh")
-print(f"  Gross generation             {results['P_turbine'].sum() * to_GWh:8.1f} GWh")
-print(f"  Net of pumping               {results['P_net'].sum() * to_GWh:8.1f} GWh")
-print(f"  Operating hours              {operating.sum():8d} h")
-print(f"  Equivalent full load hours   "
-      f"{results['P_turbine'].sum() / P_turbine_design:8.0f} h")
-print(f"  Gross capacity factor        "
-      f"{results['P_turbine'].sum() / (P_turbine_design * len(results)):8.1%}")
-print()
-print("Hours by dispatch mode")
-print(results["mode"].value_counts().to_string())
+        step["hour"] = hour_num
+        step["day_of_year"] = day_of_year
+        step["DNI"] = DNI
+        step["T_amb"] = T_amb
+        step["Q_solar"] = Q_solar
+        step["Q_sg_oil"] = Q_to_steam
+        step["m_oil_field"] = o3.m.val
+        step["T_sg_oil_in"] = o10.T.val
+        step["m_steam"] = m_steam
+        step["P_turbine"] = P_turbine
+        step["P_pumps"] = P_pumps + htf_pump.P.val
+        step["P_net"] = P_turbine - step["P_pumps"]
+        step["efficiency"] = step["P_net"] / Q_to_steam if Q_to_steam > 0 else float("nan")
+        try:
+            step["solar_efficiency"] = step["P_net"] / Q_solar
+        except ZeroDivisionError:
+            step["solar_efficiency"] = float("nan")
+        step["ex_nuclear"] = 0.0
+        if step["Q_sg_oil"] > 0:
+            step["ex_solar"] = step["Q_sg_oil"] * (1 - T_amb_K / step["T_sg_oil_in"])
+        else:
+            step["ex_solar"] = 0.0
+        try:
+            step["efficiency_II"] = step["P_net"] / (step["ex_nuclear"] + step["ex_solar"])
+        except ZeroDivisionError:
+            step["efficiency_II"] = float("nan")
+        log.append(step)
 
-# print_results shows the last solved state. Re-establish the design point so
-# state 01 reports the paper live-steam flow, not the last hourly part-load.
-solve_power_block(Q_design_thermal)
-SteamCycle.print_results()
+    results = pd.DataFrame(log)
+    if results_csv is not None:
+        results.to_csv(results_csv, index=False)
+
+    if print_results:
+        hours = dt / 3600
+        to_GWh = hours / 1e9
+        Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
+        operating = results["P_turbine"] > 0
+        print("Annual results")
+        print(f"  DNI on the aperture          {Q_incident:8.1f} GWh")
+        print(f"  Collected by the field       {results['Q_solar'].sum() * to_GWh:8.1f} GWh")
+        print(f"  Defocused                    {results['Q_defocus'].sum() * to_GWh:8.1f} GWh")
+        print(f"  Delivered to the power block {results['Q_to_pb'].sum() * to_GWh:8.1f} GWh")
+        print(f"  Gross generation             {results['P_turbine'].sum() * to_GWh:8.1f} GWh")
+        print(f"  Net of pumping               {results['P_net'].sum() * to_GWh:8.1f} GWh")
+        print(f"  Operating hours              {operating.sum():8d} h")
+        print(f"  Equivalent full load hours   "
+              f"{results['P_turbine'].sum() / P_turbine_design:8.0f} h")
+        print(f"  Gross capacity factor        "
+              f"{results['P_turbine'].sum() / (P_turbine_design * len(results)):8.1%}")
+        print()
+        print("Hours by dispatch mode")
+        print(results["mode"].value_counts().to_string())
+        solve_power_block(Q_design_thermal)
+        SteamCycle.print_results()
+
+    return results
+
+
+if __name__ == "__main__":
+    solve_andasol1()

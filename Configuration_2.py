@@ -304,7 +304,7 @@ def solve_configuration2(
         p_main_steam=5.571e6,                # Pa
         h_main_steam=2785.6e3,               # J/kg
 
-        p_hp_bleed_1=4.0e6,                  # Pa, stage-1 bleed -> reheat stage 2 shell
+        p_hp_bleed_1=3.413025e6,  #Changed
         p_hp_bleed_2=2.83e6,                 # Pa, stage-2 bleed -> HP FWH 2 shell
         p_hp_bleed_3=2.0e6,                  # Pa, stage-3 bleed -> HP FWH 1 shell
         p_hp_exhaust=1.133e6,                # Pa, crossover / moisture separator
@@ -312,13 +312,13 @@ def solve_configuration2(
         T_reheat_stage_1=490.0,              # K, after the first reheat stage
         T_lp_inlet=527.7,                    # K, reheated steam into the LP turbine
         # --- Nuclear LP turbine extraction / exhaust pressures ---
-        p_lp_bleed_1=0.45e6,                 # Pa, LP bleed 1 -> LP FWH 2
-        p_lp_bleed_2=0.30e6,                 # Pa, LP bleed 2 -> LP FWH 3
-        p_lp_bleed_3=0.20e6,                 # Pa, LP bleed 3 -> LP FWH 4
+        p_lp_bleed_1=0.45e6,                 # Pa, LP bleed 1 -> LP FWH 3
+        p_lp_bleed_2=0.30e6,                 # Pa, LP bleed 2 -> LP FWH 2
+        p_lp_bleed_3=0.20e6,                 # Pa, LP bleed 3 -> LP FWH 1
         p_nuclear_condenser=1.0e5,           # Pa, topping-cycle backpressure
         # --- Nuclear feedwater train ---
         p_condensate=1.2e6,                  # Pa, condensate pump discharge
-        p_lp_fwh_1_shell=0.60e6,             # Pa, top LP heater shell pressure
+        p_lp_fwh_4_shell=0.60e6,             # Pa, top LP heater shell pressure
         ttd_u_fwh=5.0,                       # K, ttd of the condensing heaters
         ttd_l_drain_cooler=5.0,              # K, ttd of the drain coolers
 
@@ -464,9 +464,10 @@ def solve_configuration2(
 
     moisture_separator = DropletSeparator("moisture separator")
 
+    # Heater 1 first (HP stage-1 bleed), heater 2 follows (main-steam hot inlet).
     interstage_heater_1 = HeatExchanger("interstage heater 1")
     interstage_heater_2 = HeatExchanger("interstage heater 2")
-    interstage_heater_1_valve = Valve("interstage heater 1 drain valve")
+    interstage_heater_2_valve = Valve("interstage heater 2 drain valve")
     interstage_drain_merge = Merge("interstage heater drain merge", num_in=2)
 
     RH_FWH = HeatExchanger("reheater drain FWH")
@@ -484,19 +485,22 @@ def solve_configuration2(
     condensate_pump = Pump("condenser pump")
 
 
-    LP_FWH = HeatExchanger("LP FWH 1")
-    LP_FWH_valve = Valve("LP FWH 1 drain valve")
+    # Four-heater LP train. LP FWH 1 is the coldest (fed from the condenser);
+    # LP FWH 4 is the hottest (HP FWH 1 drain). LP FWH 1/2/3 take the three LP
+    # bleeds in rising pressure.
+    LP_FWH_1 = HeatExchanger("LP FWH 1")
+    LP_FWH_1_merge = Merge("LP FWH 1 shell merge", num_in=2)
+    LP_FWH_1_valve = Valve("LP FWH 1 drain valve")
 
     LP_FWH_2 = HeatExchanger("LP FWH 2")
-    LP_FWH_2_merge = Merge("LP FWH 2 shell merge", num_in=3)
+    LP_FWH_2_merge = Merge("LP FWH 2 shell merge", num_in=2)
     LP_FWH_2_valve = Valve("LP FWH 2 drain valve")
 
     LP_FWH_3 = HeatExchanger("LP FWH 3")
-    LP_FWH_3_merge = Merge("LP FWH 3 shell merge", num_in=2)
+    LP_FWH_3_merge = Merge("LP FWH 3 shell merge", num_in=3)
     LP_FWH_3_valve = Valve("LP FWH 3 drain valve")
 
     LP_FWH_4 = HeatExchanger("LP FWH 4")
-    LP_FWH_4_merge = Merge("LP FWH 4 shell merge", num_in=2)
     LP_FWH_4_valve = Valve("LP FWH 4 drain valve")
 
     MSR_FWH = HeatExchanger("MSR drain FWH")
@@ -516,12 +520,12 @@ def solve_configuration2(
                     label=state(1, "main steam header -> main steam splitter", mark=True))
     s1b = Connection(main_steam_split, "out1", HP_turbine, "in1",
                      label=state(2, "main steam -> HP turbine inlet", mark=True))
-    s1c = Connection(main_steam_split, "out2", interstage_heater_1, "in1",
-                     label=state(3, "main steam bleed -> reheat stage 1 shell", mark=True))
+    s1c = Connection(main_steam_split, "out2", interstage_heater_2, "in1",
+                     label=state(3, "main steam bleed -> reheat stage 2 shell", mark=True))
 
     # MultiStageExtrastionTurbine: out1 is after stage 1 (highest outlet P)
-    s30 = Connection(HP_turbine, "out1", interstage_heater_2, "in1",
-                     label=state(4, "HP bleed 1 -> reheat stage 2 shell", mark=True))
+    s30 = Connection(HP_turbine, "out1", interstage_heater_1, "in1",
+                     label=state(4, "HP bleed 1 -> reheat stage 1 shell", mark=True))
     s3 = Connection(HP_turbine, "out2", HP_FWH_2_shell_merge, "in1",
                     label=state(5, "HP bleed 2 -> HP FWH 2 shell", mark=True))
     s13 = Connection(HP_turbine, "out3", HP_FWH_M, "in2",
@@ -532,26 +536,27 @@ def solve_configuration2(
 
     s2c = Connection(moisture_separator, "out1", MSR_FWH, "in1",
                      label=state(8, "separator drain -> MSR drain cooler"))
-    s2a = Connection(moisture_separator, "out2", interstage_heater_2, "in2",
-                     label=state(9, "separated vapour -> reheat stage 2", mark=True))
-    s2d = Connection(interstage_heater_2, "out2", interstage_heater_1, "in2",
-                     label=state(10, "reheat stage 2 outlet -> reheat stage 1"))
-    s2b = Connection(interstage_heater_1, "out2", LP_turbine_stg1, "in1",
+    s2a = Connection(moisture_separator, "out2", interstage_heater_1, "in2",
+                     label=state(9, "separated vapour -> reheat stage 1", mark=True))
+    s2d = Connection(interstage_heater_1, "out2", interstage_heater_2, "in2",
+                     label=state(10, "reheat stage 1 outlet -> reheat stage 2"))
+    s2b = Connection(interstage_heater_2, "out2", LP_turbine_stg1, "in1",
                      label=state(11, "reheated steam -> LP turbine inlet", mark=True))
 
-    # LP expansion and the three LP bleeds.
-    s40 = Connection(LP_turbine_stg1, "out1", LP_FWH_2_merge, "in2",
-                     label=state(12, "LP bleed 1 -> LP FWH 2 shell", mark=True))
+    # LP expansion and the three LP bleeds. Highest-pressure bleed to FWH 3,
+    # then FWH 2, then FWH 1 (lowest pressure, nearest the condenser).
+    s40 = Connection(LP_turbine_stg1, "out1", LP_FWH_3_merge, "in2",
+                     label=state(12, "LP bleed 1 -> LP FWH 3 shell", mark=True))
     s41 = Connection(LP_turbine_stg1, "out2", LP_bleed_split_1, "in1",
                      label=state(13, "LP stage 1 exhaust (LP bleed 2 pressure)", mark=True))
-    s42 = Connection(LP_bleed_split_1, "out1", LP_FWH_3_merge, "in2",
-                     label=state(14, "LP bleed 2 -> LP FWH 3 shell", mark=True))
+    s42 = Connection(LP_bleed_split_1, "out1", LP_FWH_2_merge, "in2",
+                     label=state(14, "LP bleed 2 -> LP FWH 2 shell", mark=True))
     s43 = Connection(LP_bleed_split_1, "out2", LP_turbine_stg2, "in1",
                      label=state(15, "LP stage 1 exhaust -> LP turbine stage 2 inlet", mark=True))
     s44 = Connection(LP_turbine_stg2, "out1", LP_bleed_split_2, "in1",
                      label=state(16, "LP stage 2 exhaust (LP bleed 3 pressure)", mark=True))
-    s45 = Connection(LP_bleed_split_2, "out1", LP_FWH_4_merge, "in2",
-                     label=state(17, "LP bleed 3 -> LP FWH 4 shell", mark=True))
+    s45 = Connection(LP_bleed_split_2, "out1", LP_FWH_1_merge, "in2",
+                     label=state(17, "LP bleed 3 -> LP FWH 1 shell", mark=True))
     s46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1",
                      label=state(18, "LP stage 2 exhaust -> LP turbine stage 3 inlet", mark=True))
 
@@ -562,17 +567,17 @@ def solve_configuration2(
     s7 = Connection(nuclear_condenser, "out1", condensate_pump, "in1",
                     label=state(21, "nuclear condensate -> condensate pump", mark=True))
 
-    # Feedwater climbs the LP train from the coldest heater upwards.
-    s8 = Connection(condensate_pump, "out1", LP_FWH_4, "in2",
-                    label=state(22, "condensate pump discharge -> LP FWH 4", mark=True))
-    s60 = Connection(LP_FWH_4, "out2", LP_FWH_3, "in2",
-                     label=state(23, "feedwater LP FWH 4 -> LP FWH 3"))
-    s61 = Connection(LP_FWH_3, "out2", LP_FWH_2, "in2",
-                     label=state(24, "feedwater LP FWH 3 -> LP FWH 2"))
-    s62 = Connection(LP_FWH_2, "out2", LP_FWH, "in2",
-                     label=state(25, "feedwater LP FWH 2 -> LP FWH 1"))
-    s9 = Connection(LP_FWH, "out2", MSR_FWH, "in2",
-                    label=state(26, "feedwater LP FWH 1 -> MSR drain FWH"))
+    # Feedwater climbs the LP train from the condenser: FWH 1 -> 2 -> 3 -> 4.
+    s8 = Connection(condensate_pump, "out1", LP_FWH_1, "in2",
+                    label=state(22, "condensate pump discharge -> LP FWH 1", mark=True))
+    s60 = Connection(LP_FWH_1, "out2", LP_FWH_2, "in2",
+                     label=state(23, "feedwater LP FWH 1 -> LP FWH 2"))
+    s61 = Connection(LP_FWH_2, "out2", LP_FWH_3, "in2",
+                     label=state(24, "feedwater LP FWH 2 -> LP FWH 3"))
+    s62 = Connection(LP_FWH_3, "out2", LP_FWH_4, "in2",
+                     label=state(25, "feedwater LP FWH 3 -> LP FWH 4"))
+    s9 = Connection(LP_FWH_4, "out2", MSR_FWH, "in2",
+                    label=state(26, "feedwater LP FWH 4 -> MSR drain FWH"))
     s9a = Connection(MSR_FWH, "out2", HP_pump, "in1",
                      label=state(27, "MSR drain FWH -> feed pump", mark=True))
     s10 = Connection(HP_pump, "out1", HP_FWH_1, "in2",
@@ -595,9 +600,9 @@ def solve_configuration2(
                     label=state(36, "main steam header -> cycle closer"))
 
     # Interstage heater shell sides and their cascaded drains.
-    s31 = Connection(interstage_heater_1, "out1", interstage_heater_1_valve, "in1")
-    s32 = Connection(interstage_heater_1_valve, "out1", interstage_drain_merge, "in1")
-    s33 = Connection(interstage_heater_2, "out1", interstage_drain_merge, "in2")
+    s31 = Connection(interstage_heater_2, "out1", interstage_heater_2_valve, "in1")
+    s32 = Connection(interstage_heater_2_valve, "out1", interstage_drain_merge, "in1")
+    s33 = Connection(interstage_heater_1, "out1", interstage_drain_merge, "in2")
     s34 = Connection(interstage_drain_merge, "out1", RH_FWH, "in1",
                      label=state(37, "merged reheater drains -> reheater drain FWH shell"))
     s35 = Connection(RH_FWH, "out1", RH_FWH_valve, "in1")
@@ -611,27 +616,27 @@ def solve_configuration2(
     s15 = Connection(HP_FWH_1, "out1", HP_FWH_valve_1, "in1")
     s17 = Connection(HP_FWH_2, "out1", HP_FWH_valve_2, "in1")
 
-    # Cascaded LP shell drains: HP FWH 1 -> LP FWH 1 -> 2 -> 3 -> 4 -> condenser.
-    s18 = Connection(HP_FWH_valve_1, "out1", LP_FWH, "in1",
-                     label=state(40, "HP FWH 1 drain -> LP FWH 1 shell"))
-    s19 = Connection(LP_FWH, "out1", LP_FWH_valve, "in1")
-    s20 = Connection(LP_FWH_valve, "out1", LP_FWH_2_merge, "in1")
-    s63 = Connection(LP_FWH_2_merge, "out1", LP_FWH_2, "in1",
-                     label=state(41, "merged LP FWH 2 shell inlet"))
-    s64 = Connection(LP_FWH_2, "out1", LP_FWH_2_valve, "in1")
-    s65 = Connection(LP_FWH_2_valve, "out1", LP_FWH_3_merge, "in1")
-    s66 = Connection(LP_FWH_3_merge, "out1", LP_FWH_3, "in1",
-                     label=state(42, "merged LP FWH 3 shell inlet"))
-    s67 = Connection(LP_FWH_3, "out1", LP_FWH_3_valve, "in1")
-    s68 = Connection(LP_FWH_3_valve, "out1", LP_FWH_4_merge, "in1")
-    s69 = Connection(LP_FWH_4_merge, "out1", LP_FWH_4, "in1",
-                     label=state(43, "merged LP FWH 4 shell inlet"))
-    s70 = Connection(LP_FWH_4, "out1", LP_FWH_4_valve, "in1")
-    s71 = Connection(LP_FWH_4_valve, "out1", condenser_merge, "in2")
+    # Cascaded LP shell drains: HP FWH 1 -> LP FWH 4 -> 3 -> 2 -> 1 -> condenser.
+    s18 = Connection(HP_FWH_valve_1, "out1", LP_FWH_4, "in1",
+                     label=state(40, "HP FWH 1 drain -> LP FWH 4 shell"))
+    s19 = Connection(LP_FWH_4, "out1", LP_FWH_4_valve, "in1")
+    s20 = Connection(LP_FWH_4_valve, "out1", LP_FWH_3_merge, "in1")
+    s63 = Connection(LP_FWH_3_merge, "out1", LP_FWH_3, "in1",
+                     label=state(41, "merged LP FWH 3 shell inlet"))
+    s64 = Connection(LP_FWH_3, "out1", LP_FWH_3_valve, "in1")
+    s65 = Connection(LP_FWH_3_valve, "out1", LP_FWH_2_merge, "in1")
+    s66 = Connection(LP_FWH_2_merge, "out1", LP_FWH_2, "in1",
+                     label=state(42, "merged LP FWH 2 shell inlet"))
+    s67 = Connection(LP_FWH_2, "out1", LP_FWH_2_valve, "in1")
+    s68 = Connection(LP_FWH_2_valve, "out1", LP_FWH_1_merge, "in1")
+    s69 = Connection(LP_FWH_1_merge, "out1", LP_FWH_1, "in1",
+                     label=state(43, "merged LP FWH 1 shell inlet"))
+    s70 = Connection(LP_FWH_1, "out1", LP_FWH_1_valve, "in1")
+    s71 = Connection(LP_FWH_1_valve, "out1", condenser_merge, "in2")
 
 
     s21 = Connection(MSR_FWH, "out1", MSR_FWH_valve, "in1")
-    s22 = Connection(MSR_FWH_valve, "out1", LP_FWH_2_merge, "in3")
+    s22 = Connection(MSR_FWH_valve, "out1", LP_FWH_3_merge, "in3")
 
 
     steam_generator_1.set_attr(pr=pr_steam_generator, Q=steam_generator_duty)
@@ -672,13 +677,11 @@ def solve_configuration2(
 
     condensate_pump.set_attr(eta_s=eta_s_condensate_pump)
 
-    LP_FWH.set_attr(pr1=0.97, pr2=0.97)
-
-    # LP FWH 2/3/4 each have one free bleed flow, so x=0 on the drain plus ttd_u on
-    # the feedwater outlet is exactly determined.
+    # LP FWH 4 carries the HP FWH 1 drain; LP FWH 1/2/3 each have a free bleed.
+    LP_FWH_4.set_attr(pr1=0.97, pr2=0.97)
+    LP_FWH_1.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
     LP_FWH_2.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
     LP_FWH_3.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
-    LP_FWH_4.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
 
     # Separator drain heater. This is a drain cooler, not a condensing heater
     MSR_FWH.set_attr(
@@ -693,7 +696,7 @@ def solve_configuration2(
     # two steam generator duties, so only a start value is given here.
     s1.set_attr(p=p_main_steam, h=h_main_steam, m0=1891, fluid=working_fluid)
     s1b.set_attr(m0=1824, h0=2.786e6)  # main steam -> HP turbine
-    s1c.set_attr(m0=66, h0=2.786e6)  # main steam bleed -> reheat stage 1 shell
+    s1c.set_attr(m0=66, h0=2.786e6)  # main steam bleed -> reheat stage 2 shell
 
     # HP turbine outlets: pressures fall along the stage order out1 -> ... -> out4.
     # Extrastion masses are results of each heater's ttd_u. s13 sits at 2.0 MPa so
@@ -701,17 +704,17 @@ def solve_configuration2(
     # final heater, and s3 at 2.83 MPa (Tsat = 503.6 K) the 500.9 K SG inlet.
 
     s2.set_attr(p=p_hp_exhaust, m0=1388, h0=2.55e6)  # HP exhaust -> moisture separator
-    s2a.set_attr(m0=1216, h0=2.782e6)  # separated vapour -> interstage heater 2
-    s2d.set_attr(T=T_reheat_stage_1, m0=1216, h0=2.863e6)  # first reheat stage outlet
+    s2a.set_attr(m0=1216, h0=2.782e6)  # separated vapour -> interstage heater 1
+    s2d.set_attr(m0=1216, h0=2.863e6)  #Changed
     s2b.set_attr(T=T_lp_inlet, m0=1216, h0=2.950e6)  # reheated steam -> LP turbine
     s2c.set_attr(m0=172, h0=7.87e5)  # separator drain -> MSR drain FWH
-    s30.set_attr(p=p_hp_bleed_1, m0=60, h0=2.740e6)  # stage-1 bleed -> interstage heater 2
+    s30.set_attr(p=p_hp_bleed_1, m=82.935, h0=2.740e6)  #Changed
     s3.set_attr(p=p_hp_bleed_2, m0=92, h0=2.690e6)  # stage-2 extraction -> HP FWH 2
     s13.set_attr(p=p_hp_bleed_3, m0=284, h0=2.640e6)  # stage-3 extraction -> HP FWH merge
 
-    # Interstage heater drains. x=0 on both shells sets the bleed flows; heater 1's
-    # drain is then throttled to heater 2's shell-outlet pressure, whish is what the
-    # merge pins the two branshes to.
+    # Interstage heater drains. x=0 on both shells sets the bleed flows; heater 2's
+    # drain is then throttled to heater 1's shell-outlet pressure, which is what the
+    # merge pins the two branches to.
     s31.set_attr(x=0, m0=66, h0=1.179e6)
     s32.set_attr(m0=66, h0=1.179e6)
     s33.set_attr(x=0, m0=60, h0=1.079e6)
@@ -721,12 +724,12 @@ def solve_configuration2(
     s37.set_attr(m0=218, h0=1.706e6)
 
     # LP bleed pressures.
-    s40.set_attr(p=p_lp_bleed_1, m0=104, h0=2.740e6)  # LP bleed 1 -> LP FWH 2
+    s40.set_attr(p=p_lp_bleed_1, m0=104, h0=2.740e6)  # LP bleed 1 -> LP FWH 3
     s41.set_attr(p=p_lp_bleed_2, m0=1112, h0=2.700e6)  # LP stage 1 exhaust
-    s42.set_attr(m0=16, h0=2.700e6)  # LP bleed 2 -> LP FWH 3
+    s42.set_attr(m0=16, h0=2.700e6)  # LP bleed 2 -> LP FWH 2
     s43.set_attr(m0=1096, h0=2.700e6)
     s44.set_attr(p=p_lp_bleed_3, m0=1096, h0=2.660e6)  # LP stage 2 exhaust
-    s45.set_attr(m0=90, h0=2.660e6)  # LP bleed 3 -> LP FWH 4
+    s45.set_attr(m0=90, h0=2.660e6)  # LP bleed 3 -> LP FWH 1
     s46.set_attr(m0=1006, h0=2.660e6)
 
 
@@ -751,9 +754,9 @@ def solve_configuration2(
     s15.set_attr(x=0, m0=502, h0=9.015e5)  # HP FWH 1 drain leaves as saturated liquid
     s17.set_attr(x=0, m0=218, h0=9.854e5)  # HP FWH 2 drain leaves as saturated liquid
 
-    # LP FWH 1 shell pressure. Tsat(0.6 MPa) = 432 K against feedwater at 400 K, so
+    # LP FWH 4 shell pressure. Tsat(0.6 MPa) = 432 K against feedwater at 400 K, so
     # the throttled HP FWH 1 drain arrives wet (x ~ 0.11) and condenses out.
-    s18.set_attr(p=p_lp_fwh_1_shell, m0=502, h0=9.015e5)
+    s18.set_attr(p=p_lp_fwh_4_shell, m0=502, h0=9.015e5)
     s19.set_attr(x=0, m0=502, h0=6.652e5)
     s20.set_attr(m0=502, h0=6.652e5)
 
@@ -1018,9 +1021,9 @@ def solve_configuration2(
     return results
 
 
-# if __name__ == "__main__":
-#     results = solve_configuration2(hourly=False)
-#     print(results)
+if __name__ == "__main__":
+    results = solve_configuration2(hourly=False)
+    print(results)
 #
 #     # # ---------------------------------------------------------------------------
 #     # # Annual summary

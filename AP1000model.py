@@ -45,12 +45,12 @@ class AP1000Plant(ModelTemplate):
 
         moisture_separator = DropletSeparator("moisture separator")
 
-        # Two-stage interstage reheat. Heater 2 is the low-temperature stage (fed by the
-        # HP turbine stage-1 bleed), heater 1 the high-temperature stage (fed by main
-        # steam bled upstream of the HP turbine).
+        # Two-stage interstage reheat in process order. Heater 1 is the low-temperature
+        # stage (HP turbine stage-1 bleed on the hot inlet). Heater 2 follows it and is
+        # the high-temperature stage (main steam bled upstream of the HP turbine).
         interstage_heater_1 = HeatExchanger("interstage heater 1")
         interstage_heater_2 = HeatExchanger("interstage heater 2")
-        interstage_heater_1_valve = Valve("interstage heater 1 drain valve")
+        interstage_heater_2_valve = Valve("interstage heater 2 drain valve")
         interstage_drain_merge = Merge("interstage heater drain merge", num_in=2)
 
         RH_FWH = HeatExchanger("reheater drain FWH")
@@ -73,23 +73,24 @@ class AP1000Plant(ModelTemplate):
 
         condensate_pump = Pump("condenser pump")
 
-        # Four-heater LP train, cascaded shell drains. LP FWH 1 is the hottest (fed by
-        # the HP FWH 1 drain), LP FWH 2/3/4 are fed by the three LP bleeds. Each shell
-        # outlet is throttled down to the next bleed pressure and merges with that
-        # bleed, and the last drain lands on the condenser merge.
-        LP_FWH = HeatExchanger("LP FWH 1")
-        LP_FWH_valve = Valve("LP FWH 1 drain valve")
+        # Four-heater LP train, cascaded shell drains. LP FWH 1 is the coldest (fed
+        # from the condenser); LP FWH 4 is the hottest (HP FWH 1 drain). LP FWH 1/2/3
+        # take the three LP bleeds in rising pressure. Each shell outlet is throttled
+        # down to the next bleed pressure and merges with that bleed, and the last
+        # drain lands on the condenser merge.
+        LP_FWH_1 = HeatExchanger("LP FWH 1")
+        LP_FWH_1_merge = Merge("LP FWH 1 shell merge", num_in=2)
+        LP_FWH_1_valve = Valve("LP FWH 1 drain valve")
 
         LP_FWH_2 = HeatExchanger("LP FWH 2")
-        LP_FWH_2_merge = Merge("LP FWH 2 shell merge", num_in=3)
+        LP_FWH_2_merge = Merge("LP FWH 2 shell merge", num_in=2)
         LP_FWH_2_valve = Valve("LP FWH 2 drain valve")
 
         LP_FWH_3 = HeatExchanger("LP FWH 3")
-        LP_FWH_3_merge = Merge("LP FWH 3 shell merge", num_in=2)
+        LP_FWH_3_merge = Merge("LP FWH 3 shell merge", num_in=3)
         LP_FWH_3_valve = Valve("LP FWH 3 drain valve")
 
         LP_FWH_4 = HeatExchanger("LP FWH 4")
-        LP_FWH_4_merge = Merge("LP FWH 4 shell merge", num_in=2)
         LP_FWH_4_valve = Valve("LP FWH 4 drain valve")
 
         MSR_FWH = HeatExchanger("MSR drain FWH")
@@ -106,7 +107,7 @@ class AP1000Plant(ModelTemplate):
 
         c1 = Connection(cc, "out1", main_steam_split, "in1")
         c1a = Connection(main_steam_split, "out1", HP_turbine, "in1")
-        c1b = Connection(main_steam_split, "out2", interstage_heater_1, "in1")
+        c1b = Connection(main_steam_split, "out2", interstage_heater_2, "in1")
 
         # MultiStageExtractionTurbine: out1 is after stage 1 (highest outlet P),
         # outN is the exhaust (lowest P). Stage i+1 uses out{i}'s (p, h) as its inlet.
@@ -114,16 +115,17 @@ class AP1000Plant(ModelTemplate):
 
         # DropletSeparator: out1 is the saturated liquid drain, out2 the saturated vapour
         # that goes on to the interstage reheaters and the LP turbine.
-        c2a = Connection(moisture_separator, "out2", interstage_heater_2, "in2")
-        c2d = Connection(interstage_heater_2, "out2", interstage_heater_1, "in2")
-        c2b = Connection(interstage_heater_1, "out2", LP_turbine_stg1, "in1")
+        c2a = Connection(moisture_separator, "out2", interstage_heater_1, "in2")
+        c2d = Connection(interstage_heater_1, "out2", interstage_heater_2, "in2")
+        c2b = Connection(interstage_heater_2, "out2", LP_turbine_stg1, "in1")
         c2c = Connection(moisture_separator, "out1", MSR_FWH, "in1")
 
-        # Interstage heater shell sides and their cascaded drains.
-        c30 = Connection(HP_turbine, "out1", interstage_heater_2, "in1")
-        c31 = Connection(interstage_heater_1, "out1", interstage_heater_1_valve, "in1")
-        c32 = Connection(interstage_heater_1_valve, "out1", interstage_drain_merge, "in1")
-        c33 = Connection(interstage_heater_2, "out1", interstage_drain_merge, "in2")
+        # Interstage heater shell sides and their cascaded drains. Live-steam
+        # condensate leaves heater 2 at header pressure and is throttled to heater 1.
+        c30 = Connection(HP_turbine, "out1", interstage_heater_1, "in1")
+        c31 = Connection(interstage_heater_2, "out1", interstage_heater_2_valve, "in1")
+        c32 = Connection(interstage_heater_2_valve, "out1", interstage_drain_merge, "in1")
+        c33 = Connection(interstage_heater_1, "out1", interstage_drain_merge, "in2")
         c34 = Connection(interstage_drain_merge, "out1", RH_FWH, "in1")
         c35 = Connection(RH_FWH, "out1", RH_FWH_valve, "in1")
         c36 = Connection(RH_FWH_valve, "out1", HP_FWH_2_shell_merge, "in2")
@@ -270,23 +272,23 @@ class AP1000Plant(ModelTemplate):
         # Main steam, DCD Fig 10.1-1: 808 psia / 1197.6 BTU/lb / 14,476,945 lb/hr.
         c1.set_attr(p=5.571e6, h=2785.6e3, m=1824.1, fluid=working_fluid)
         c1a.set_attr(m0=1759, h0=2.786e6)  # main steam -> HP turbine
-        c1b.set_attr(m0=65, h0=2.786e6)  # main steam bleed -> interstage heater 1
+        c1b.set_attr(m0=65, h0=2.786e6)  # main steam bleed -> interstage heater 2
 
         # HP turbine outlets: pressures fall along the stage order out1 -> ... -> out4.
         # Extraction masses are results of each heater's ttd_u. c13 sits at 2.0 MPa so
         # that Tsat = 485.5 K supports the DCD's 478 K feedwater point ahead of the
         # final heater, and c3 at 2.83 MPa (Tsat = 503.6 K) the 500.9 K SG inlet.
         c2.set_attr(p=1.133e6, m0=1342, h0=2.52e6)  # HP exhaust -> moisture separator
-        c2a.set_attr(m0=1180, h0=2.781e6)  # separated vapour -> interstage heater 2
-        c2d.set_attr(T=490, m0=1180, h0=2.858e6)  # first reheat stage outlet
+        c2a.set_attr(m0=1180, h0=2.781e6)  # separated vapour -> interstage heater 1
+        c2d.set_attr(m0=1180, h0=2.858e6)  #Changed
         c2b.set_attr(T=527.7, m0=1180, h0=2.947e6)  # reheated steam -> LP turbine
         c2c.set_attr(m0=162, h0=7.85e5)  # separator drain -> MSR drain FWH
-        c30.set_attr(p=4.0e6, m0=55, h0=2.691e6)  # stage-1 bleed -> interstage heater 2
+        c30.set_attr(p=3.413025e6, m=82.935, h0=2.691e6)  #Changed
         c3.set_attr(p=2.83e6, m0=84, h0=2.644e6)  # stage-2 extraction -> HP FWH 2
         c13.set_attr(p=2.0e6, m0=279, h0=2.592e6)  # stage-3 extraction -> HP FWH merge
 
-        # Interstage heater drains. x=0 on both shells sets the bleed flows; heater 1's
-        # drain is then throttled to heater 2's shell-outlet pressure, which is what the
+        # Interstage heater drains. x=0 on both shells sets the bleed flows; heater 2's
+        # drain is then throttled to heater 1's shell-outlet pressure, which is what the
         # merge pins the two branches to.
         c31.set_attr(x=0, m0=65, h0=1.177e6)
         c32.set_attr(m0=65, h0=1.177e6)

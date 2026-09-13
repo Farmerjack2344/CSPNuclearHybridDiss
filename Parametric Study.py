@@ -7,6 +7,9 @@ import os
 
 from Configuration_1 import solve_configuration1
 from Configuration_2 import solve_configuration2, Q_design_thermal as Q_DESIGN_REF
+from AP1000V5 import solve_ap1000
+from Andasol1 import solve_andasol1
+from CoolProp.CoolProp import PropsSI
 
 def percentage(num_list):
 
@@ -44,40 +47,65 @@ def plotting_mass_flow_rate():
 
 def plotting_fluids_2():
     list_of_fluids = ["ISOPENTANE", "ISOBUTANE", "HEXAMETHYLDISILOXANE", "CYCLOPENTANE", "R1233ZDE", "R245fa"]
-    fluids = [{x:1} for x in list_of_fluids]
-    #TODO: Fill this in with fluids and then bar chart to find most efficient/power
+    fluids = [{x: 1} for x in list_of_fluids]
+    display_names = {"HEXAMETHYLDISILOXANE": "MM","R1233ZDE": "R1233zd(E)","R245fa": "R245fa"}
+    labels = [display_names.get(name, name.title()) for name in list_of_fluids]
+
+    
+    T_cond = PropsSI("T", "P", 1.9e5, "Q", 0, "R245fa")
+    T_evap = PropsSI("T", "P", 10.0e5, "Q", 0, "R245fa")
+    p_hp_frac = np.log(4.5e5 / 1.9e5) / np.log(10.0e5 / 1.9e5)
+
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
     exergy_efficiency_values = []
     for fluid in fluids:
-        results = solve_configuration2(secondary_fluid=fluid, hourly=False, print_results=False)
+        fluid_name = next(iter(fluid))
+        T_evap_fluid = min(T_evap, 0.95 * PropsSI("Tcrit", fluid_name))
+
+        p_condenser = PropsSI("P", "T", T_cond, "Q", 0, fluid_name)
+        p_evaporator = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid_name)
+        p_hp_exhaust = p_condenser * (p_evaporator / p_condenser) ** p_hp_frac
+        results = solve_configuration2(secondary_fluid=fluid,
+                                       p_condenser_secondary=p_condenser,p_evaporator_secondary=p_evaporator,
+                                       p_hp_exhaust_secondary=p_hp_exhaust, hourly=False, print_results=False,
+        )
         power_values.append(results["P_net"])
         efficiency_values.append(results["efficiency"])
         solar_efficiency_values.append(results["solar_efficiency"])
         exergy_efficiency_values.append(results["efficiency_II"])
 
+    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
+    ax[0, 0].bar(labels, power_values)
+    ax[0, 0].set_ylabel("Power (W)")
+    ax[0, 0].set_xlabel("Fluid")
+    ax[0, 0].set_title("Power Output by Working Fluids")
 
-    fig, ax = pyplot.subplots(2,2)
-    power_plot = ax[0,0].bar([fluid.lower().capitalize() for fluid in list_of_fluids],power_values)
-    power_plot.set_ylabel("Power (W)")
-    power_plot.set_xlabel("Fluid")
-    power_plot.set_title("Power Output by Working Fluids")
+    ax[0, 1].bar(labels, percentage(efficiency_values))
+    ax[0, 1].set_ylabel("Efficiency (%)")
+    ax[0, 1].set_xlabel("Fluid")
+    ax[0, 1].set_title("Efficiency by Working Fluids")
 
-    efficiency_plot = ax[0,1].bar([fluid.lower().capitalize() for fluid in list_of_fluids],[x * 100  for x in efficiency_values])
-    efficiency_plot.set_ylabel("Efficiency (%)")
-    efficiency_plot.set_xlabel("Fluid")
-    efficiency_plot.set_title("Efficiency by Working Fluids")
+    ax[1, 1].bar(labels, percentage(solar_efficiency_values))
+    ax[1, 1].set_ylabel("Efficiency (%)")
+    ax[1, 1].set_xlabel("Fluid")
+    ax[1, 1].set_title("Solar Efficiency by Working Fluids")
 
-    solar_efficiency_plot = ax[1,1].bar([fluid.lower().capitalize() for fluid in list_of_fluids],[x * 100  for x in solar_efficiency_values])
-    solar_efficiency_plot.set_ylabel("Efficiency (%)")
-    solar_efficiency_plot.set_xlabel("Fluid")
-    solar_efficiency_plot.set_title("Solar Efficiency by Working Fluids")
+    ax[1, 0].bar(labels, percentage(exergy_efficiency_values))
+    ax[1, 0].set_ylabel("Exergy (%)")
+    ax[1, 0].set_xlabel("Fluid")
+    ax[1, 0].set_title("Exergy by Working Fluids")
 
-    exergy_efficiency_plot = ax[1,0].bar([fluid.lower().capitalize() for fluid in list_of_fluids],[x * 100  for x in exergy_efficiency_values])
-    exergy_efficiency_plot.set_ylabel("Exergy (%)")
-    exergy_efficiency_plot.set_xlabel("Fluid")
-    exergy_efficiency_plot.set_title("Exergy by Working Fluids")
+    for axis in ax.flat:
+        axis.grid(True, axis="y", alpha=0.3)
+        axis.tick_params(axis="x", labelrotation=20)
+
+    Title = "Effect of ORC Working Fluid on System Performance"
+    fig.suptitle(Title, fontsize=16, fontweight="bold")
+    pyplot.tight_layout()
+    pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
+    pyplot.show()
 
 def plotting_p_nuclear_condenser_2():
     # The pressure coming out of the turbine
@@ -722,7 +750,79 @@ def plotting_Q_design_thermal(
     pyplot.show()
 
 
+def plotting_comparison(day_number=222):
+    plants = {
+        "AP1000": "#222222",
+        "Configuration 1": "#1f77b4",
+        "Configuration 2": "#d62728",
+        "Andasol-1": "#2ca02c",
+    }
+
+    def pick(row, key):
+        value = row.get(key, float("nan"))
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float("nan")
+
+    def frame_kpis(df):
+        """Read the four log KPIs, sorted by hour."""
+        work = df.copy()
+        work["hour"] = pd.to_numeric(work["hour"], errors="coerce")
+        work = work.sort_values("hour")
+        hours, power, eta, eta_s, eta2 = [], [], [], [], []
+        for _, row in work.iterrows():
+            rec = row.to_dict()
+            hours.append(pick(rec, "hour"))
+            power.append(pick(rec, "P_net"))
+            eta.append(pick(rec, "efficiency"))
+            eta_s.append(pick(rec, "solar_efficiency"))
+            eta2.append(pick(rec, "efficiency_II"))
+        return hours, power, eta, eta_s, eta2
+
+    ap = solve_ap1000(print_results=False)
+    ap = pd.DataFrame([{**ap, "hour": hour} for hour in range(24)])
+    c1 = solve_configuration1(day_number=day_number, hourly=True, verbose=False, results_csv=None)
+    c2 = solve_configuration2(day_number=day_number, n_days=1, hourly=True, print_results=False, verbose=False, results_csv=None,)
+    an = solve_andasol1(day_number=day_number, n_days=1, hourly=True, print_results=False, verbose=False, results_csv=None,
+    )
+
+    traces = {
+        "AP1000": frame_kpis(ap),
+        "Configuration 1": frame_kpis(c1),
+        "Configuration 2": frame_kpis(c2),
+        "Andasol-1": frame_kpis(an),
+    }
+
+    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
+    panels = (
+        (ax[0, 0], 1, "Power (W)", False, "Net Power vs. Hour of Day"),
+        (ax[0, 1], 2, "Efficiency (%)", True, "Efficiency vs. Hour of Day"),
+        (ax[1, 1], 3, "Efficiency (%)", True, "Solar Efficiency vs. Hour of Day"),
+        (ax[1, 0], 4, "Exergy (%)", True, "Exergy vs. Hour of Day"),
+    )
+    for axis, idx, ylabel, as_percent, title in panels:
+        for name, colour in plants.items():
+            x = traces[name][0]
+            y = traces[name][idx]
+            axis.plot(x, percentage(y) if as_percent else y,
+                      color=colour, linewidth=2, label=name)
+        axis.set_xlabel("Hour of day")
+        axis.set_ylabel(ylabel)
+        axis.set_title(title, fontsize=13)
+        axis.set_xlim(0, 23)
+        axis.grid(True, alpha=0.3)
+        axis.legend()
+
+    Title = "Plant Comparison over One Day"
+    fig.suptitle(Title, fontsize=16, fontweight="bold")
+    pyplot.tight_layout()
+    pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
+    pyplot.show()
+
+
 if __name__ == "__main__":
     #plotting_p_nuclear_condenser_2()
-    plotting_HP_LP_Turbine_outlets_2()
+    #plotting_HP_LP_Turbine_outlets_2()
     #plotting_Q_design_thermal()
+    plotting_comparison(223)
