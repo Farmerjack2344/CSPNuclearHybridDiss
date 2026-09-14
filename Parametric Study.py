@@ -19,9 +19,10 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 #solve_configuration1()
-#TODO: find what I need to plot
+
 #Config 1 Study
 def plotting_mass_flow_rate():
+    #2D oil and working fluid
     pass
 
 
@@ -46,12 +47,26 @@ def plotting_mass_flow_rate():
 # Solar-specific incremental efficiency — extra net power generated per unit of solar thermal input added (isolates whether the CSP contribution itself is being used well, independent of the fixed nuclear baseline)
 
 def plotting_fluids_2():
-    list_of_fluids = ["ISOPENTANE", "ISOBUTANE", "HEXAMETHYLDISILOXANE", "CYCLOPENTANE", "R1233ZDE", "R245fa"]
-    fluids = [{x: 1} for x in list_of_fluids]
-    display_names = {"HEXAMETHYLDISILOXANE": "MM","R1233ZDE": "R1233zd(E)","R245fa": "R245fa"}
-    labels = [display_names.get(name, name.title()) for name in list_of_fluids]
+    list_of_fluids = [
+        "ISOPENTANE",
+        "ISOBUTANE",
+        "CYCLOPENTANE",
+        "HEXANE",
+        "TOLUENE",
+        "HEXAMETHYLDISILOXANE",
+        "R1233ZDE",
+        "R245FA",
+    ]
 
-    
+    fluids = [{x: 1} for x in list_of_fluids]
+
+
+
+    labels = [
+        name.lower()
+        for name in list_of_fluids
+    ]
+
     T_cond = PropsSI("T", "P", 1.9e5, "Q", 0, "R245fa")
     T_evap = PropsSI("T", "P", 10.0e5, "Q", 0, "R245fa")
     p_hp_frac = np.log(4.5e5 / 1.9e5) / np.log(10.0e5 / 1.9e5)
@@ -62,21 +77,27 @@ def plotting_fluids_2():
     exergy_efficiency_values = []
     for fluid in fluids:
         fluid_name = next(iter(fluid))
-        T_evap_fluid = min(T_evap, 0.95 * PropsSI("Tcrit", fluid_name))
+        try:
+            T_evap_fluid = min(T_evap, 0.95 * PropsSI("Tcrit", fluid_name))
 
-        p_condenser = PropsSI("P", "T", T_cond, "Q", 0, fluid_name)
-        p_evaporator = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid_name)
-        p_hp_exhaust = p_condenser * (p_evaporator / p_condenser) ** p_hp_frac
-        results = solve_configuration2(secondary_fluid=fluid,
-                                       p_condenser_secondary=p_condenser,p_evaporator_secondary=p_evaporator,
-                                       p_hp_exhaust_secondary=p_hp_exhaust, hourly=False, print_results=False,
-        )
-        power_values.append(results["P_net"])
-        efficiency_values.append(results["efficiency"])
-        solar_efficiency_values.append(results["solar_efficiency"])
-        exergy_efficiency_values.append(results["efficiency_II"])
+            p_condenser = PropsSI("P", "T", T_cond, "Q", 0, fluid_name)
+            p_evaporator = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid_name)
+            p_hp_exhaust = p_condenser * (p_evaporator / p_condenser) ** p_hp_frac
+            results = solve_configuration2(secondary_fluid=fluid,
+                                           p_condenser_secondary=p_condenser,p_evaporator_secondary=p_evaporator,
+                                           p_hp_exhaust_secondary=p_hp_exhaust, hourly=False, print_results=False,
+            )
+            power_values.append(results["P_net"])
+            efficiency_values.append(results["efficiency"])
+            solar_efficiency_values.append(results["solar_efficiency"])
+            exergy_efficiency_values.append(results["efficiency_II"])
+        except:
+            power_values.append(1)
+            efficiency_values.append(1)
+            solar_efficiency_values.append(1)
+            exergy_efficiency_values.append(1)
 
-    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
+    fig, ax = pyplot.subplots(2, 2, figsize=(20, 20))
     ax[0, 0].bar(labels, power_values)
     ax[0, 0].set_ylabel("Power (W)")
     ax[0, 0].set_xlabel("Fluid")
@@ -109,7 +130,8 @@ def plotting_fluids_2():
 
 def plotting_p_nuclear_condenser_2():
     # The pressure coming out of the turbine
-    pressure_values = np.linspace( 7e3,0.45e4, 50)
+    pressure_values = np.linspace(0.85e5, 1.2e5, 50)
+    #There is something stoppping from dropping pressure
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
@@ -125,26 +147,26 @@ def plotting_p_nuclear_condenser_2():
     # Power plot
     ax[0, 0].plot([x / 1000 for x in pressure_values], power_values,linewidth=2)
     ax[0, 0].set_ylabel("Power (W)")
-    ax[0, 0].set_xlabel("Pressure (Pa)")
+    ax[0, 0].set_xlabel("Pressure (kPa)")
     ax[0,0].set_title("Power Output Vs. LP Turbine Outlet Pressure", fontsize=13)
 
 
     # Efficiency Plot
     ax[0, 1].plot([x / 1000 for x in pressure_values], percentage(efficiency_values),linewidth=2)
     ax[0, 1].set_ylabel("Efficiency (%)")
-    ax[0, 1].set_xlabel("Pressure (Pa)")
+    ax[0, 1].set_xlabel("Pressure (kPa)")
     ax[0, 1].set_title("Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
 
     # Solar Efficiency Plot
     ax[1, 1].plot([x / 1000 for x in pressure_values], percentage(solar_efficiency_values),linewidth=2)
     ax[1, 1].set_ylabel("Efficiency (%)")
-    ax[1, 1].set_xlabel("Pressure (Pa)")
+    ax[1, 1].set_xlabel("Pressure (kPa)")
     ax[1, 1].set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
 
     # Exergy Efficiency Plot
     ax[1, 0].plot([x / 1000 for x in pressure_values], percentage(exergy_efficiency_values),linewidth=2)
     ax[1, 0].set_ylabel("Exergy (%)")
-    ax[1, 0].set_xlabel("Pressure (Pa)")
+    ax[1, 0].set_xlabel("Pressure (kPa)")
     ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure", fontsize=13)
 
     ax[0, 0].grid(True)
@@ -182,25 +204,25 @@ def plotting_evaporator_secondary_2():
     ax[0, 0].plot([x / 1000 for x in pressure_values], power_values, linewidth=2)
     ax[0, 0].set_ylabel("Power (W)")
     ax[0, 0].set_xlabel("Pressure (Pa)")
-    ax[0, 0].set_title("Power Output Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[0, 0].set_title("Power Output Vs. ORC Superheater inlet", fontsize=13)
 
     # Efficiency Plot
     ax[0, 1].plot([x / 1000 for x in pressure_values], percentage(efficiency_values), linewidth=2)
     ax[0, 1].set_ylabel("Efficiency (%)")
     ax[0, 1].set_xlabel("Pressure (Pa)")
-    ax[0, 1].set_title("Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[0, 1].set_title("Efficiency Vs.ORC Superheater inlet", fontsize=13)
 
     # Solar Efficiency Plot
     ax[1, 1].plot([x / 1000 for x in pressure_values], percentage(solar_efficiency_values), linewidth=2)
     ax[1, 1].set_ylabel("Efficiency (%)")
     ax[1, 1].set_xlabel("Pressure (Pa)")
-    ax[1, 1].set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[1, 1].set_title("Solar Efficiency Vs. ORC Superheater inlet", fontsize=13)
 
     # Exergy Efficiency Plot
     ax[1, 0].plot([x / 1000 for x in pressure_values], percentage(exergy_efficiency_values), linewidth=2)
     ax[1, 0].set_ylabel("Exergy (%)")
     ax[1, 0].set_xlabel("Pressure (Pa)")
-    ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[1, 0].set_title("Exergy Vs. ORC Superheater inlet", fontsize=13)
 
     ax[0, 0].grid(True)
     ax[0, 1].grid(True)
@@ -234,25 +256,25 @@ def plotting_reheat_fraction_2():
     ax[0, 0].plot([x / 1000 for x in reheat_fraction_values], power_values, linewidth=2)
     ax[0, 0].set_ylabel("Power (W)")
     ax[0, 0].set_xlabel("Pressure (Pa)")
-    ax[0, 0].set_title("Power Output Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[0, 0].set_title("Power Output Vs. Oil Reheat Fraction", fontsize=13)
 
     # Efficiency Plot
     ax[0, 1].plot([x / 1000 for x in reheat_fraction_values], percentage(efficiency_values), linewidth=2)
     ax[0, 1].set_ylabel("Efficiency (%)")
     ax[0, 1].set_xlabel("Pressure (Pa)")
-    ax[0, 1].set_title("Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[0, 1].set_title("Efficiency Vs. Oil Reheat Fraction", fontsize=13)
 
     # Solar Efficiency Plot
     ax[1, 1].plot([x / 1000 for x in reheat_fraction_values], percentage(solar_efficiency_values), linewidth=2)
     ax[1, 1].set_ylabel("Efficiency (%)")
     ax[1, 1].set_xlabel("Pressure (Pa)")
-    ax[1, 1].set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[1, 1].set_title("Solar Efficiency Vs. Oil Reheat Fraction", fontsize=13)
 
     # Exergy Efficiency Plot
     ax[1, 0].plot([x / 1000 for x in reheat_fraction_values], percentage(exergy_efficiency_values), linewidth=2)
     ax[1, 0].set_ylabel("Exergy (%)")
     ax[1, 0].set_xlabel("Pressure (Pa)")
-    ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[1, 0].set_title("Exergy Vs. Oil Reheat Fraction", fontsize=13)
 
     ax[0, 0].grid(True)
     ax[0, 1].grid(True)
@@ -260,7 +282,7 @@ def plotting_reheat_fraction_2():
     ax[1, 1].grid(True, alpha=0.3)
 
     fig.suptitle(
-        "Effect of LP Turbine Outlet Pressure on System Performance",
+        "Effect of Oil Reheat Fraction  on System Performance",
         fontsize=16,
         fontweight="bold"
     )
@@ -269,13 +291,13 @@ def plotting_reheat_fraction_2():
     pyplot.show()
 
 def plotting_condenser_secondary_2():
-    temperature_values = np.linspace(0.05, 0.5, 70)
+    pressure_values = np.linspace(1.3e5, 2.5e5, 70)
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
     exergy_efficiency_values = []
-    for temperature in temperature_values:
-        results = solve_configuration2(T_field_out=temperature, hourly=False, print_results=False)
+    for pressure in pressure_values:
+        results = solve_configuration2(p_condenser_secondary=pressure, hourly=False, print_results=False)
         power_values.append(results["P_net"])
         efficiency_values.append(results["efficiency"])
         solar_efficiency_values.append(results["solar_efficiency"])
@@ -283,28 +305,28 @@ def plotting_condenser_secondary_2():
 
     fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
     # Power plot
-    ax[0, 0].plot([x / 1000 for x in temperature_values], power_values, linewidth=2)
+    ax[0, 0].plot([x / 1000 for x in pressure_values], power_values, linewidth=2)
     ax[0, 0].set_ylabel("Power (W)")
-    ax[0, 0].set_xlabel("Pressure (Pa)")
-    ax[0, 0].set_title("Power Output Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[0, 0].set_xlabel("Pressure (kPa)")
+    ax[0, 0].set_title("Power Output Vs. ORC Condenser Back Pressure", fontsize=13)
 
     # Efficiency Plot
-    ax[0, 1].plot([x / 1000 for x in temperature_values], percentage(efficiency_values), linewidth=2)
+    ax[0, 1].plot([x / 1000 for x in pressure_values], percentage(efficiency_values), linewidth=2)
     ax[0, 1].set_ylabel("Efficiency (%)")
-    ax[0, 1].set_xlabel("Pressure (Pa)")
-    ax[0, 1].set_title("Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[0, 1].set_xlabel("Pressure (kPa)")
+    ax[0, 1].set_title("Efficiency Vs. ORC Condenser Back Pressure", fontsize=13)
 
     # Solar Efficiency Plot
-    ax[1, 1].plot([x / 1000 for x in temperature_values], percentage(solar_efficiency_values), linewidth=2)
+    ax[1, 1].plot([x / 1000 for x in pressure_values], percentage(solar_efficiency_values), linewidth=2)
     ax[1, 1].set_ylabel("Efficiency (%)")
-    ax[1, 1].set_xlabel("Pressure (Pa)")
-    ax[1, 1].set_title("Solar Efficiency Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[1, 1].set_xlabel("Pressure (kPa)")
+    ax[1, 1].set_title("Solar Efficiency Vs. ORC Condenser Back Pressure", fontsize=13)
 
     # Exergy Efficiency Plot
-    ax[1, 0].plot([x / 1000 for x in temperature_values], percentage(exergy_efficiency_values), linewidth=2)
+    ax[1, 0].plot([x / 1000 for x in pressure_values], percentage(exergy_efficiency_values), linewidth=2)
     ax[1, 0].set_ylabel("Exergy (%)")
-    ax[1, 0].set_xlabel("Pressure (Pa)")
-    ax[1, 0].set_title("Exergy Vs. LP Turbine Outlet Pressure", fontsize=13)
+    ax[1, 0].set_xlabel("Pressure (kPa)")
+    ax[1, 0].set_title("Exergy Vs. ORC Condenser Back Pressure", fontsize=13)
 
     ax[0, 0].grid(True)
     ax[0, 1].grid(True)
@@ -312,7 +334,7 @@ def plotting_condenser_secondary_2():
     ax[1, 1].grid(True, alpha=0.3)
 
     fig.suptitle(
-        "Effect of LP Turbine Outlet Pressure on System Performance",
+        "Effect of ORC Condenser Back Pressure Pressure on System Performance",
         fontsize=16,
         fontweight="bold"
     )
@@ -322,7 +344,7 @@ def plotting_condenser_secondary_2():
 
 
 
-def _solve_single_point(args):
+def _solve_single_point_pressure(args):
     """Worker function — must be top-level (picklable) for multiprocessing."""
     HP_pressure, LP_pressure = args
     results = solve_configuration2(
@@ -349,7 +371,7 @@ def plotting_HP_LP_Turbine_outlets_2():
     grid_points = list(zip(HP_grid.ravel(), LP_grid.ravel()))
 
     with Pool(processes=max(cpu_count() - 1, 1)) as pool:
-        raw_results = pool.map(_solve_single_point, grid_points)
+        raw_results = pool.map(_solve_single_point_pressure, grid_points)
 
     shape = HP_grid.shape
     power_values = np.array([r[0] for r in raw_results], dtype=float).reshape(shape)
@@ -406,13 +428,13 @@ def plotting_HP_LP_Turbine_outlets_2():
     pyplot.show()
 
 def plotting_ttd_u_2():
-    pressure_values = np.linspace(7e3, 0.45e4, 50)
+    ttd_u_values = np.linspace(2, 16, 50)
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
     exergy_efficiency_values = []
-    for pressure in pressure_values:
-        results = solve_configuration2(p_nuclear_condenser=pressure, hourly=False, print_results=False)
+    for ttd_u in ttd_u_values:
+        results = solve_configuration2(ttd_u_fwh=ttd_u, hourly=False, print_results=False)
         power_values.append(results["P_net"])
         efficiency_values.append(results["efficiency"])
         solar_efficiency_values.append(results["solar_efficiency"])
@@ -420,25 +442,25 @@ def plotting_ttd_u_2():
 
     fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
     # Power plot
-    ax[0, 0].plot([x / 1000 for x in pressure_values], power_values, linewidth=2)
+    ax[0, 0].plot(ttd_u_values, power_values, linewidth=2)
     ax[0, 0].set_ylabel("Power (W)")
     ax[0, 0].set_xlabel("Terminal Temperature Difference (K)")
     ax[0, 0].set_title("Power Output Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
 
     # Efficiency Plot
-    ax[0, 1].plot([x / 1000 for x in pressure_values], percentage(efficiency_values), linewidth=2)
+    ax[0, 1].plot(ttd_u_values, percentage(efficiency_values), linewidth=2)
     ax[0, 1].set_ylabel("Efficiency (%)")
     ax[0, 1].set_xlabel("Terminal Temperature Difference (K)")
     ax[0, 1].set_title("Efficiency Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
 
     # Solar Efficiency Plot
-    ax[1, 1].plot([x / 1000 for x in pressure_values], percentage(solar_efficiency_values), linewidth=2)
+    ax[1, 1].plot(ttd_u_values, percentage(solar_efficiency_values), linewidth=2)
     ax[1, 1].set_ylabel("Efficiency (%)")
     ax[1, 1].set_xlabel("Terminal Temperature Difference (K)")
     ax[1, 1].set_title("Solar Efficiency Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
 
     # Exergy Efficiency Plot
-    ax[1, 0].plot([x / 1000 for x in pressure_values], percentage(exergy_efficiency_values), linewidth=2)
+    ax[1, 0].plot(ttd_u_values, percentage(exergy_efficiency_values), linewidth=2)
     ax[1, 0].set_ylabel("Exergy (%)")
     ax[1, 0].set_xlabel("Terminal Temperature Difference (K)")
     ax[1, 0].set_title("Exergy Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
@@ -480,14 +502,7 @@ def _solve_q_design_month(args):
     return Q_design, results
 
 
-def plotting_Q_design_thermal(
-        n_days=30,
-        start_day=222,
-        n_points=10,
-        q_frac_min=0.40,
-        q_frac_max=1.00,
-        use_cache=True,
-):
+def plotting_Q_design_thermal(n_days=30,start_day=222,n_points=10,q_frac_min=0.40,q_frac_max=1.00,use_cache=True,):
     """Month-long Q_design sweep for the solar section (Configuration 2).
 
     Method
@@ -597,11 +612,6 @@ def plotting_Q_design_thermal(
                 continue
         jobs.append((Q_design, n_days, start_day, cache_path))
 
-    print(
-        f"Q_design sweep: {n_points} ratings × {n_days} days "
-        f"({expected_hours} hours each), {len(jobs)} TESPy runs needed, "
-        f"{len(loaded)} loaded from cache."
-    )
 
     if jobs:
         workers = min(len(jobs), max(cpu_count() - 1, 1), 4)
@@ -648,7 +658,7 @@ def plotting_Q_design_thermal(
     for axis in ax.flat:
         axis.grid(True, alpha=0.3)
 
-    Title = "Effect of Solar Q_design on Monthly System Performance"
+    Title = "Effect of Solar Q design on Monthly System Performance"
     fig.suptitle(Title, fontsize=16, fontweight="bold")
     pyplot.tight_layout()
     pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
@@ -675,14 +685,14 @@ def plotting_Q_design_thermal(
     ax[1, 0].set_title("Defocused Fraction vs. Solar Q_design", fontsize=13)
 
     ax[1, 1].plot(q_mw, [s["cov_P_net_active"] for s in summaries], linewidth=2, marker="o")
-    ax[1, 1].set_ylabel("CoV of P_net (active hours)")
-    ax[1, 1].set_xlabel("Q_design (MW)")
+    ax[1, 1].set_ylabel("CoV of net Power (active hours)")
+    ax[1, 1].set_xlabel("Q design (MW)")
     ax[1, 1].set_title("Output Fluctuation Intensity vs. Solar Q_design", fontsize=13)
 
     for axis in ax.flat:
         axis.grid(True, alpha=0.3)
 
-    Title = "Effect of Solar Q_design on Utilisation and Fluctuation"
+    Title = "Effect of Solar Q design on Utilisation"
     fig.suptitle(Title, fontsize=16, fontweight="bold")
     pyplot.tight_layout()
     pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
@@ -822,7 +832,15 @@ def plotting_comparison(day_number=222):
 
 
 if __name__ == "__main__":
-    #plotting_p_nuclear_condenser_2()
-    #plotting_HP_LP_Turbine_outlets_2()
-    #plotting_Q_design_thermal()
-    plotting_comparison(223)
+    # Config 2
+    plotting_p_nuclear_condenser_2()
+    # plotting_evaporator_secondary_2()
+    # plotting_reheat_fraction_2()
+    # plotting_condenser_secondary_2()
+    # plotting_HP_LP_Turbine_outlets_2()
+    # plotting_ttd_u_2()
+    # plotting_Q_design_thermal()
+    # plotting_comparison(223)
+    #plotting_fluids_2()# Done
+
+    # Config 1

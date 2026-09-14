@@ -10,6 +10,10 @@ connections.txt
 rankine.py
 optimise_example.py
 /ModelResults
+AP1000_connection_results.xlsx
+AP1000_Connection_Results_with_DCD_comparison_FORREAL.xlsx
+Andasol-1_Connection_Results.xlsx
+notes.txt
 
 # OpenModelica build products
 modelica/AP1000

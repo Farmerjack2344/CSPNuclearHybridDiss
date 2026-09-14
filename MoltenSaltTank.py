@@ -127,8 +127,7 @@ def dispatch(Q_solar, Q_design, tank, dt, min_load_fraction=0.25):
         Lowest fraction of Q_design the steam turbine is allowed to run at.
         Asfand et al. validate Andasol-1 down to 25% MCR.
 
-    Returns
-    -------
+    Returns:
     dict with mode, Q_to_pb, Q_to_storage, Q_from_storage, Q_defocus,
     m_dot_charge, m_dot_discharge, tank_soc — everything the TESPy-side code
     needs to set Q= specs on the steam generator and charge/discharge heat
@@ -142,8 +141,7 @@ def dispatch(Q_solar, Q_design, tank, dt, min_load_fraction=0.25):
     if Q_solar >= Q_design:
         Q_surplus = Q_solar - Q_design
         Q_charged, m_dot_charge = tank.charge(Q_surplus, dt)
-        # Whatever the cold tank could not absorb has nowhere to go: the field
-        # is defocused rather than dumped on the power block.
+
         result.update(
             mode="charging",
             Q_to_pb=Q_design,
@@ -156,9 +154,7 @@ def dispatch(Q_solar, Q_design, tank, dt, min_load_fraction=0.25):
 
     elif Q_solar > 0:
         Q_shortfall = Q_design - Q_solar
-        # Look before withdrawing
-        # If even a full top-up cannot lift the block
-        # to minimum load, the salt is better left in the hot tank.
+
         Q_top_up = min(Q_shortfall, tank.available_discharge(dt))
 
         if Q_solar + Q_top_up >= Q_min_load:

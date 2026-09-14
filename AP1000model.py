@@ -133,13 +133,14 @@ class AP1000Plant(ModelTemplate):
         c3 = Connection(HP_turbine, "out2", HP_FWH_2_shell_merge, "in1")
         c37 = Connection(HP_FWH_2_shell_merge, "out1", HP_FWH_2, "in1")
 
-        # LP expansion and the three LP bleeds.
-        c40 = Connection(LP_turbine_stg1, "out1", LP_FWH_2_merge, "in2")
+        # LP expansion and the three LP bleeds. Highest-pressure bleed to FWH 3,
+        # then FWH 2, then FWH 1 (lowest pressure, nearest the condenser).
+        c40 = Connection(LP_turbine_stg1, "out1", LP_FWH_3_merge, "in2")
         c41 = Connection(LP_turbine_stg1, "out2", LP_bleed_split_1, "in1")
-        c42 = Connection(LP_bleed_split_1, "out1", LP_FWH_3_merge, "in2")
+        c42 = Connection(LP_bleed_split_1, "out1", LP_FWH_2_merge, "in2")
         c43 = Connection(LP_bleed_split_1, "out2", LP_turbine_stg2, "in1")
         c44 = Connection(LP_turbine_stg2, "out1", LP_bleed_split_2, "in1")
-        c45 = Connection(LP_bleed_split_2, "out1", LP_FWH_4_merge, "in2")
+        c45 = Connection(LP_bleed_split_2, "out1", LP_FWH_1_merge, "in2")
         c46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1")
 
         c5 = Connection(LP_turbine_stg3, "out1", condenser_merge, "in1")
@@ -148,33 +149,33 @@ class AP1000Plant(ModelTemplate):
 
         c7 = Connection(condenser, "out1", condensate_pump, "in1")
 
-        # Feedwater climbs the LP train from the coldest heater upwards.
-        c8 = Connection(condensate_pump, "out1", LP_FWH_4, "in2")
-        c60 = Connection(LP_FWH_4, "out2", LP_FWH_3, "in2")
-        c61 = Connection(LP_FWH_3, "out2", LP_FWH_2, "in2")
-        c62 = Connection(LP_FWH_2, "out2", LP_FWH, "in2")
-        c9 = Connection(LP_FWH, "out2", MSR_FWH, "in2")
+        # Feedwater climbs the LP train from the condenser: FWH 1 -> 2 -> 3 -> 4.
+        c8 = Connection(condensate_pump, "out1", LP_FWH_1, "in2")
+        c60 = Connection(LP_FWH_1, "out2", LP_FWH_2, "in2")
+        c61 = Connection(LP_FWH_2, "out2", LP_FWH_3, "in2")
+        c62 = Connection(LP_FWH_3, "out2", LP_FWH_4, "in2")
+        c9 = Connection(LP_FWH_4, "out2", MSR_FWH, "in2")
         c9a = Connection(MSR_FWH, "out2", HP_pump, "in1")
 
-        # Cascaded LP shell drains: HP FWH 1 -> LP FWH 1 -> 2 -> 3 -> 4 -> condenser.
-        c18 = Connection(HP_FWH_valve_1, "out1", LP_FWH, "in1")
-        c19 = Connection(LP_FWH, "out1", LP_FWH_valve, "in1")
-        c20 = Connection(LP_FWH_valve, "out1", LP_FWH_2_merge, "in1")
-        c63 = Connection(LP_FWH_2_merge, "out1", LP_FWH_2, "in1")
-        c64 = Connection(LP_FWH_2, "out1", LP_FWH_2_valve, "in1")
-        c65 = Connection(LP_FWH_2_valve, "out1", LP_FWH_3_merge, "in1")
-        c66 = Connection(LP_FWH_3_merge, "out1", LP_FWH_3, "in1")
-        c67 = Connection(LP_FWH_3, "out1", LP_FWH_3_valve, "in1")
-        c68 = Connection(LP_FWH_3_valve, "out1", LP_FWH_4_merge, "in1")
-        c69 = Connection(LP_FWH_4_merge, "out1", LP_FWH_4, "in1")
-        c70 = Connection(LP_FWH_4, "out1", LP_FWH_4_valve, "in1")
-        c71 = Connection(LP_FWH_4_valve, "out1", condenser_merge, "in2")
+        # Cascaded LP shell drains: HP FWH 1 -> LP FWH 4 -> 3 -> 2 -> 1 -> condenser.
+        c18 = Connection(HP_FWH_valve_1, "out1", LP_FWH_4, "in1")
+        c19 = Connection(LP_FWH_4, "out1", LP_FWH_4_valve, "in1")
+        c20 = Connection(LP_FWH_4_valve, "out1", LP_FWH_3_merge, "in1")
+        c63 = Connection(LP_FWH_3_merge, "out1", LP_FWH_3, "in1")
+        c64 = Connection(LP_FWH_3, "out1", LP_FWH_3_valve, "in1")
+        c65 = Connection(LP_FWH_3_valve, "out1", LP_FWH_2_merge, "in1")
+        c66 = Connection(LP_FWH_2_merge, "out1", LP_FWH_2, "in1")
+        c67 = Connection(LP_FWH_2, "out1", LP_FWH_2_valve, "in1")
+        c68 = Connection(LP_FWH_2_valve, "out1", LP_FWH_1_merge, "in1")
+        c69 = Connection(LP_FWH_1_merge, "out1", LP_FWH_1, "in1")
+        c70 = Connection(LP_FWH_1, "out1", LP_FWH_1_valve, "in1")
+        c71 = Connection(LP_FWH_1_valve, "out1", condenser_merge, "in2")
 
         # The MSR drain leaves its cooler at ~420 K. Flashing it straight to the
         # condenser threw away ~50 MW; cascading it into the top of the LP shell train
         # instead lets that heat displace bleed steam.
         c21 = Connection(MSR_FWH, "out1", MSR_FWH_valve, "in1")
-        c22 = Connection(MSR_FWH_valve, "out1", LP_FWH_2_merge, "in3")
+        c22 = Connection(MSR_FWH_valve, "out1", LP_FWH_3_merge, "in3")
 
         c10 = Connection(HP_pump, "out1", HP_FWH_1, "in2")
 
@@ -240,17 +241,17 @@ class AP1000Plant(ModelTemplate):
 
         condensate_pump.set_attr(eta_s=0.804)
 
-        # LP FWH 1 carries the whole HP FWH 1 drain, and that flow is already fixed
+        # LP FWH 4 carries the whole HP FWH 1 drain, and that flow is already fixed
         # upstream. Its duty is therefore not free: x=0 on c19 closes the shell side and
         # the feedwater rise on c9 is the result. A ttd spec here would demand a duty
         # roughly twice what the drain can supply.
-        LP_FWH.set_attr(pr1=0.97, pr2=0.97)
+        LP_FWH_4.set_attr(pr1=0.97, pr2=0.97)
 
-        # LP FWH 2/3/4 each have one free bleed flow, so x=0 on the drain plus ttd_u on
+        # LP FWH 1/2/3 each have one free bleed flow, so x=0 on the drain plus ttd_u on
         # the feedwater outlet is exactly determined.
+        LP_FWH_1.set_attr(ttd_u=5, pr1=0.97, pr2=0.97)
         LP_FWH_2.set_attr(ttd_u=5, pr1=0.97, pr2=0.97)
         LP_FWH_3.set_attr(ttd_u=5, pr1=0.97, pr2=0.97)
-        LP_FWH_4.set_attr(ttd_u=5, pr1=0.97, pr2=0.97)
 
         # Separator drain heater. This is a drain cooler, not a condensing heater: the
         # shell side receives saturated liquid, so ttd_u would tie the feedwater outlet
@@ -301,12 +302,12 @@ class AP1000Plant(ModelTemplate):
         # LP bleed pressures, DCD LP extraction stages. Spreading them 0.289 / 0.086 /
         # 0.0405 MPa puts Tsat at 405 / 369 / 349 K against condensate entering at
         # 312 K, which is the ladder the DCD feedwater temperatures imply.
-        c40.set_attr(p=0.289e6, m0=99, h0=2.700e6)  # LP bleed 1 -> LP FWH 2
+        c40.set_attr(p=0.289e6, m0=99, h0=2.700e6)  # LP bleed 1 -> LP FWH 3
         c41.set_attr(p=0.086e6, m0=1078, h0=2.512e6)  # LP stage 1 exhaust
-        c42.set_attr(m0=15, h0=2.512e6)  # LP bleed 2 -> LP FWH 3
+        c42.set_attr(m0=15, h0=2.512e6)  # LP bleed 2 -> LP FWH 2
         c43.set_attr(m0=1063, h0=2.512e6)
         c44.set_attr(p=0.0405e6, m0=1063, h0=2.406e6)  # LP stage 2 exhaust
-        c45.set_attr(m0=87, h0=2.406e6)  # LP bleed 3 -> LP FWH 4
+        c45.set_attr(m0=87, h0=2.406e6)  # LP bleed 3 -> LP FWH 1
         c46.set_attr(m0=976, h0=2.406e6)
 
         # Condenser backpressure. The DCD's 5.66 psia is the last LP extraction, not
@@ -331,7 +332,7 @@ class AP1000Plant(ModelTemplate):
         c15.set_attr(x=0, m0=483, h0=9.059e5)  # HP FWH 1 drain leaves as saturated liquid
         c17.set_attr(x=0, m0=204, h0=9.850e5)  # HP FWH 2 drain leaves as saturated liquid
 
-        # LP FWH 1 shell pressure. Tsat(0.6 MPa) = 432 K against feedwater at 400 K, so
+        # LP FWH 4 shell pressure. Tsat(0.6 MPa) = 432 K against feedwater at 400 K, so
         # the throttled HP FWH 1 drain arrives wet (x ~ 0.11) and condenses out.
         c18.set_attr(p=0.60e6, m0=483, h0=9.059e5)
         c19.set_attr(x=0, m0=483, h0=6.660e5)
