@@ -115,7 +115,7 @@ def solve_ap1000(
         h_main_steam=2785.6e3,
         p_hp_bleed_1=3.413025e6,  # 495 psia, 1st-stage reheat (DCD Fig 10.1-1)
         p_hp_bleed_2=2.8269e6,    # 410 psia, HP FWH 7
-        p_hp_bleed_3=1.7306e6,    # 251 psia, HP FWH 6
+        p_hp_bleed_3=1785742.14,    # 259 psia, HP FWH 6
         p_hp_exhaust=1.1328e6,    # 164.3 psia, HP exhaust / MSH
         T_reheat_stage_1=490.0,
         T_lp_inlet=527.7,         # 490.2 F at the CIV
@@ -128,18 +128,18 @@ def solve_ap1000(
         p_lp_fwh_4_shell=0.4137e6,  # unused; LP FWH 4 now follows p_lp_bleed_1
         ttd_u_fwh=2.222,          # 4 F heater TTD on Fig 10.1-1
         ttd_l_drain_cooler=5.556, # 10 F drain-cooler approach on Fig 10.1-1
-        T_cw_in=288.15,
-        T_cw_out=300.15,
+        T_cw_in=303.65,
+        T_cw_out=307.15,
         p_cw=1.2e5,
         steam_generator_duty=1707e6,
         pr_steam_generator=0.97,
         print_results=True,
         design_point_out=None,
 ):
-    eta_s_hp_turbine = 0.84
-    eta_s_lp_turbine = 0.873
-    eta_s_condensate_pump = 0.804
-    eta_s_feed_pump = 0.804
+    eta_s_hp_turbine=[0.8275, 0.9226, 0.8939, 0.8834]
+    eta_s_lp_turbine = [0.8855,0.9051,0.8944,0.8248]#0.84
+    eta_s_condensate_pump = 0.80
+    eta_s_feed_pump = 0.80
 
     AP1000_plant = Network()
     AP1000_plant.units.set_defaults(
@@ -184,23 +184,19 @@ def solve_ap1000(
     RH_FWH_valve = Valve("reheater drain FWH drain valve")
     HP_FWH_2_shell_merge = Merge("HP FWH 2 shell merge", num_in=2)
 
-    # LP expansion: three turbine bodies. Stage 1 has three outlets so the four
-    # DCD LP extractions (41.9 / 37.2 / 12.56 / 5.70 psia) are all present; the
-    # last body exhausts to the condenser.
-    LP_turbine_stg1 = MultiStageExtractionTurbine("LP turbine stage 1", num_stages=3)
-    LP_turbine_stg2 = Turbine("LP turbine stage 2")
-    LP_turbine_stg3 = Turbine("LP turbine stage 3")
-
-    # Only part of each LP body's outlet is bled off; the rest carries on expanding,
-    # so every bleed below the first needs its own splitter.
-    LP_bleed_split_1 = Splitter("LP stage 1 exhaust splitter", num_out=2)
-    LP_bleed_split_2 = Splitter("LP stage 2 exhaust splitter", num_out=2)
+    # LP expansion: three turbine bodies in parallel off the reheater outlet.
+    # Turbine 1 expands to LP FWH 4. Turbine 2 is a two-stage machine (FWH 3
+    # then FWH 2). Turbine 3 extracts to LP FWH 1 and exhausts to the condenser.
+    LP_inlet_split = Splitter("LP turbine inlet splitter", num_out=3)
+    LP_turbine_1 = Turbine("LP turbine 1")
+    LP_turbine_2 = MultiStageExtractionTurbine("LP turbine 2", num_stages=2)
+    LP_turbine_3 = MultiStageExtractionTurbine("LP turbine 3", num_stages=2)
 
     condensate_pump = Pump("condenser pump")
 
     # Four-heater LP train, cascaded shell drains. LP FWH 1 is the coldest (fed
-    # from the condenser); LP FWH 4 is the hottest (HP FWH 1 drain). LP FWH 1/2/3
-    # take the three LP bleeds in rising pressure. Each shell outlet is throttled
+    # from the condenser); LP FWH 4 is the hottest. Each heater takes a bleed
+    # from one of the parallel LP turbines. Each shell outlet is throttled
     # down to the next bleed pressure and merges with that bleed, and the last
     # drain lands on the condenser merge.
     LP_FWH_1 = HeatExchanger("LP FWH 1")
@@ -249,12 +245,14 @@ def solve_ap1000(
     # that goes on to the interstage reheaters and the LP turbine.
     c2a = Connection(moisture_separator, "out2", interstage_heater_1, "in2")
     c2d = Connection(interstage_heater_1, "out2", interstage_heater_2, "in2")
-    c2b = Connection(interstage_heater_2, "out2", LP_turbine_stg1, "in1")
+    c2b = Connection(interstage_heater_2, "out2", LP_inlet_split, "in1")
+    c2b1 = Connection(LP_inlet_split, "out1", LP_turbine_1, "in1")
+    c2b2 = Connection(LP_inlet_split, "out2", LP_turbine_2, "in1")
+    c2b3 = Connection(LP_inlet_split, "out3", LP_turbine_3, "in1")
     c2c = Connection(moisture_separator, "out1", msr_to_da_valve, "in1")
     c2c_da = Connection(msr_to_da_valve, "out1", deaerator, "in3")
 
-    # Interstage heater shell sides and their cascaded drains. Live-steam condensate
-    # leaves heater 2 at header pressure and is throttled down to heater 1's shell.
+
     c30 = Connection(HP_turbine, "out1", interstage_heater_1, "in1")
     c31 = Connection(interstage_heater_2, "out1", interstage_heater_2_valve, "in1")
     c32 = Connection(interstage_heater_2_valve, "out1", interstage_drain_merge, "in1")
@@ -266,18 +264,12 @@ def solve_ap1000(
     c3 = Connection(HP_turbine, "out2", HP_FWH_2_shell_merge, "in1")
     c37 = Connection(HP_FWH_2_shell_merge, "out1", HP_FWH_2, "in1")
 
-    # Four DCD LP extractions: 41.9 -> FWH 4, 37.2 -> FWH 3, 12.56 -> FWH 2,
-    # 5.70 -> FWH 1, then the exhaust to the condenser.
-    c40 = Connection(LP_turbine_stg1, "out1", LP_FWH_4, "in1")
-    c40b = Connection(LP_turbine_stg1, "out2", LP_FWH_3_merge, "in2")
-    c41 = Connection(LP_turbine_stg1, "out3", LP_bleed_split_1, "in1")
-    c42 = Connection(LP_bleed_split_1, "out1", LP_FWH_2_merge, "in2")
-    c43 = Connection(LP_bleed_split_1, "out2", LP_turbine_stg2, "in1")
-    c44 = Connection(LP_turbine_stg2, "out1", LP_bleed_split_2, "in1")
-    c45 = Connection(LP_bleed_split_2, "out1", LP_FWH_1_merge, "in2")
-    c46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1")
 
-    c5 = Connection(LP_turbine_stg3, "out1", condenser_merge, "in1")
+    c40 = Connection(LP_turbine_1, "out1", LP_FWH_4, "in1")
+    c40b = Connection(LP_turbine_2, "out1", LP_FWH_3_merge, "in2")
+    c42 = Connection(LP_turbine_2, "out2", LP_FWH_2_merge, "in2")
+    c45 = Connection(LP_turbine_3, "out1", LP_FWH_1_merge, "in2")
+    c5 = Connection(LP_turbine_3, "out2", condenser_merge, "in1")
 
     c6 = Connection(condenser_merge, "out1", condenser, "in1")
 
@@ -348,14 +340,12 @@ def solve_ap1000(
     # Isentropic efficiencies are the DCD-consistent values that land the shaft output
     # at 1200 MW
     HP_turbine.set_attr(
-    eta_s1=eta_s_hp_turbine, eta_s2=eta_s_hp_turbine,
-    eta_s3=eta_s_hp_turbine, eta_s4=eta_s_hp_turbine,
+    eta_s1=eta_s_hp_turbine[0], eta_s2=eta_s_hp_turbine[1],
+    eta_s3=eta_s_hp_turbine[2], eta_s4=eta_s_hp_turbine[3],
     )
-    LP_turbine_stg1.set_attr(
-        eta_s1=eta_s_lp_turbine, eta_s2=eta_s_lp_turbine, eta_s3=eta_s_lp_turbine,
-    )
-    LP_turbine_stg2.set_attr(eta_s=eta_s_lp_turbine)
-    LP_turbine_stg3.set_attr(eta_s=eta_s_lp_turbine)
+    LP_turbine_1.set_attr(eta_s=eta_s_lp_turbine[0])
+    LP_turbine_2.set_attr(eta_s1=eta_s_lp_turbine[1], eta_s2=eta_s_lp_turbine[2])
+    LP_turbine_3.set_attr(eta_s1=eta_s_lp_turbine[3], eta_s2=eta_s_lp_turbine[3])
 
     # Interstage heaters. Each shell condenses to x=0 (set on c31/c33) and each cold
     # outlet temperature is fixed (c2d, c2b), so the bleed mass flows follow from the
@@ -365,16 +355,10 @@ def solve_ap1000(
     interstage_heater_2.set_attr(pr1=0.97, pr2=0.98)
     interstage_heater_1.set_attr(pr1=0.97, pr2=0.98)
 
-    # The merged reheater drains are the highest-pressure drain in the plant, so they
-    # feed their own heater at the hot end of the feedwater train. The shell receives
-    # (nearly) saturated liquid, so this is a drain cooler: ttd_l, not ttd_u.
+
     RH_FWH.set_attr(ttd_l=ttd_l_drain_cooler, pr1=0.97, pr2=0.97)
 
-    # Every heater fed by wet steam has a shell temperature fixed by pressure alone
-    # (dT/dh = 0), so a ttd equation reduces to a constraint on the single feedwater
-    # enthalpy it references and no two heaters may reference the same one. Using
-    # ttd_u throughout keeps each heater on its own cold outlet, and the drains are
-    # pinned with x=0 on their own connections instead.
+
     HP_FWH_2.set_attr(
     ttd_u=ttd_u_fwh,
     pr1=0.97,
@@ -420,35 +404,32 @@ def solve_ap1000(
     c2a.set_attr(m0=1280, h0=2.782e6)
     c2d.set_attr(m0=1280, h0=2.863e6)
     c2b.set_attr(T=T_lp_inlet, m0=1280, h0=2.950e6)
+    c2b1.set_attr(m0=43, h0=2.950e6)
+    c2b2.set_attr(m0=118, h0=2.950e6)
+    c2b3.set_attr(m0=1119, h0=2.950e6)
     c2c.set_attr(m0=172, h0=7.87e5)
     c2c_da.set_attr(m0=172, h0=7.87e5)
-    c30.set_attr(p=p_hp_bleed_1, m=83.07, h0=2.740e6)  # 659,256 lb/h 1st-stage reheat
+    c30.set_attr(p=p_hp_bleed_1, m=82.9, h0=2.740e6)  # 659,256 lb/h 1st-stage reheat
     c3.set_attr(p=p_hp_bleed_2, m0=92, h0=2.690e6)  # 410 psia -> HP FWH 2
     c13.set_attr(p=p_hp_bleed_3, m0=200, h0=2.620e6)  # 251 psia -> HP FWH 1
 
-    # Interstage heater drains. x=0 on both shells sets the bleed flows; heater 2's
-    # drain is then throttled to heater 1's shell-outlet pressure, which is what the
-    # merge pins the two branches to.
-    c31.set_attr(x=0, m0=61, h0=1.179e6)
+
+    c31.set_attr(x=0.05, m0=61, h0=1.179e6)
     c32.set_attr(m0=61, h0=1.179e6)
-    c33.set_attr(x=0, m0=60, h0=1.079e6)
+    c33.set_attr(x=0.05, m0=60, h0=1.079e6)
     c34.set_attr(m0=126, h0=1.132e6)
     c35.set_attr(m0=126, h0=9.93e5)
     c36.set_attr(m0=126, h0=9.93e5)
     c37.set_attr(m0=218, h0=1.706e6)
 
-    # DCD Fig 10.1-1 LP extractions: 41.9 / 37.2 / 12.56 / 5.70 psia.
-    c40.set_attr(p=p_lp_bleed_1, m0=43, h0=2.775e6)   # 41.9 psia -> LP FWH 4
-    c40b.set_attr(p=p_lp_bleed_4, m0=75, h0=2.685e6)  # 37.2 psia -> LP FWH 3
-    c41.set_attr(p=p_lp_bleed_2, m0=1112, h0=2.535e6)  # 12.56 psia stage exhaust
-    c42.set_attr(m0=43, h0=2.535e6)  # 12.56 psia -> LP FWH 2
-    c43.set_attr(m0=1069, h0=2.535e6)
-    c44.set_attr(p=p_lp_bleed_3, m0=1069, h0=2.435e6)  # 5.70 psia stage exhaust
-    c45.set_attr(m0=10, h0=2.435e6)  # 5.70 psia -> LP FWH 1
-    c46.set_attr(m0=1059, h0=2.435e6)
 
-    # Condenser 2.50 inHg abs from Fig 10.1-1. Exhaust flow ~7,986,802 lb/h.
-    c5.set_attr(p=p_condenser, m0=1006, h0=2.443e6)
+    c40.set_attr(p=p_lp_bleed_1, m0=43, h0=2.775e6)   # 41.9 psia -> LP FWH 4
+    c40b.set_attr(p=p_lp_bleed_4, m0=75, h0=2.770e6)  # 37.2 psia -> LP FWH 3
+    c42.set_attr(p=p_lp_bleed_2, m0=43, h0=2.550e6)   # 12.56 psia -> LP FWH 2
+    c45.set_attr(p=p_lp_bleed_3, m0=1.002e1, h0=2.490e6)   # 5.70 psia -> LP FWH 1
+
+
+    c5.set_attr(p=p_condenser, m0=1069, h0=2.350e6)
 
     c8.set_attr(p=p_condensate, m0=1286, h0=1.81e5)
     c9.set_attr(m0=1286, h0=5.27e5)
@@ -464,9 +445,6 @@ def solve_ap1000(
     c16.set_attr(m0=1891, h0=9.706e5)
     c38.set_attr(m0=1891, h0=9.798e5)
 
-    # Even split between the two steam generators: fixing the enthalpy leaving shell 1
-    # at the main steam value forces the merge to hand shell 2 the same outlet state,
-    # so the two duties are carried by equal mass flows.
     c39.set_attr(m0=945, h0=9.798e5)
     c72.set_attr(m0=945, h0=9.798e5)
     c73.set_attr(h=h_main_steam, m0=945)
@@ -493,11 +471,11 @@ def solve_ap1000(
     c71.set_attr(m0=884, h0=3.158e5)
 
     AP1000_plant.add_conns(
-    c1, c1a, c1b, c2_hp, c2, c2_da, c2a, c2b, c2c, c2c_da, c2d, c3, c5,
+    c1, c1a, c1b, c2_hp, c2, c2_da, c2a, c2b, c2b1, c2b2, c2b3, c2c, c2c_da, c2d, c3, c5,
     c6, c7, c8, c9, c9d, c9a, c10, c11, c12, c13, c14, c15,
     c16, c17, c18, c19, c20, c0, c1_1, c1_2,
     c30, c31, c32, c33, c34, c35, c36, c37, c38, c39,
-    c40, c40b, c41, c42, c43, c44, c45, c46,
+    c40, c40b, c42, c45,
     c60, c61, c62, c63, c64, c65, c66, c67, c68, c69, c70, c71,
     c72, c73, c74
 )
@@ -542,7 +520,7 @@ def solve_ap1000(
 
     turbine_power = sum(
         t.P.val_SI for t in (
-            HP_turbine, LP_turbine_stg1, LP_turbine_stg2, LP_turbine_stg3
+            HP_turbine, LP_turbine_1, LP_turbine_2, LP_turbine_3
         )
     )
     pump_power = condensate_pump.P.val_SI + HP_pump.P.val_SI
@@ -580,8 +558,8 @@ def solve_ap1000(
             "AP1000_connection_results.xlsx",
             connections=[
                 c73, c74, c1, c1a, c1b, c30, c3, c13, c2, c2c, c2c_da,
-                c2a, c2d, c2b, c31, c32, c33, c34, c35, c36, c37, c40, c40b,
-                c41, c42, c43, c44, c45, c46, c5, c6, c7, c8, c60, c61, c62,
+                c2a, c2d, c2b, c2b1, c2b2, c2b3, c31, c32, c33, c34, c35, c36,
+                c37, c40, c40b, c42, c45, c5, c6, c7, c8, c60, c61, c62,
                 c9, c9a, c10, c11, c16, c38, c39, c72, c12, c14, c15, c17,
                 c18, c19, c20, c63, c64, c65, c66, c67, c68, c69, c70, c71,
                 c1_1, c1_2,

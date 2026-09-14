@@ -437,25 +437,19 @@ def solve_configuration1(
     RH_FWH_valve = Valve("reheater drain FWH drain valve")
     HP_FWH_2_shell_merge = Merge("HP FWH 2 shell merge", num_in=2)
 
-    # LP expansion: three turbine bodies (a two-stage extraction turbine of the same
-    # type as the HP turbine, then two single-stage turbines). Four outlet streams
-    # leave the group: LP1 out1, LP1 out2, LP2 out1 and the LP3 exhaust. The first
-    # three are the bleeds that feed the LP heater train, the last one is the
-    # exhaust to the condenser.
-    LP_turbine_stg1 = MultiStageExtractionTurbine("LP turbine stage 1", num_stages=3)
-    LP_turbine_stg2 = Turbine("LP turbine stage 2")
-    LP_turbine_stg3 = Turbine("LP turbine stage 3")
-
-    # Only part of each LP body's outlet is bled off; the rest carries on expanding,
-    # so every bleed below the first needs its own splitter.
-    LP_bleed_split_1 = Splitter("LP stage 1 exhaust splitter", num_out=2)
-    LP_bleed_split_2 = Splitter("LP stage 2 exhaust splitter", num_out=2)
+    # LP expansion: three turbine bodies in parallel off the reheater outlet.
+    # Turbine 1 expands to LP FWH 4. Turbine 2 is a two-stage machine (FWH 3
+    # then FWH 2). Turbine 3 extracts to LP FWH 1 and exhausts to the condenser.
+    LP_inlet_split = Splitter("LP turbine inlet splitter", num_out=3)
+    LP_turbine_1 = Turbine("LP turbine 1")
+    LP_turbine_2 = MultiStageExtractionTurbine("LP turbine 2", num_stages=2)
+    LP_turbine_3 = MultiStageExtractionTurbine("LP turbine 3", num_stages=2)
 
     condensate_pump = Pump("condenser pump")
 
     # Four-heater LP train, cascaded shell drains. LP FWH 1 is the coldest (fed
-    # from the condenser); LP FWH 4 is the hottest (HP FWH 1 drain). LP FWH 1/2/3
-    # take the three LP bleeds in rising pressure. Each shell outlet is throttled
+    # from the condenser); LP FWH 4 is the hottest. Each heater takes a bleed
+    # from one of the parallel LP turbines. Each shell outlet is throttled
     # down to the next bleed pressure and merges with that bleed, and the last
     # drain lands on the condenser merge.
     LP_FWH_1 = HeatExchanger("LP FWH 1")
@@ -517,8 +511,14 @@ def solve_configuration1(
 
     s2d = Connection(interstage_heater_1, "out2", interstage_heater_2, "in2",
                      label=state(12, "reheat stage 1 outlet -> reheat stage 2"))
-    s2b = Connection(interstage_heater_2, "out2", LP_turbine_stg1, "in1",
-                     label=state(13, "reheated steam -> LP turbine inlet", mark=True))
+    s2b = Connection(interstage_heater_2, "out2", LP_inlet_split, "in1",
+                     label=state(13, "reheated steam -> LP turbine inlet splitter", mark=True))
+    s2b1 = Connection(LP_inlet_split, "out1", LP_turbine_1, "in1",
+                      label=state(13, "LP inlet splitter -> LP turbine 1"))
+    s2b2 = Connection(LP_inlet_split, "out2", LP_turbine_2, "in1",
+                      label=state(13, "LP inlet splitter -> LP turbine 2"))
+    s2b3 = Connection(LP_inlet_split, "out3", LP_turbine_3, "in1",
+                      label=state(13, "LP inlet splitter -> LP turbine 3", mark=True))
     s2c = Connection(moisture_separator, "out1", msr_to_da_valve, "in1",
                      label=state(10, "separator drain -> deaerator valve"))
     s2c_da = Connection(msr_to_da_valve, "out1", deaerator, "in3")
@@ -539,27 +539,16 @@ def solve_configuration1(
     s37 = Connection(HP_FWH_2_shell_merge, "out1", HP_FWH_2, "in1",
                      label=state(40, "merged HP FWH 2 shell inlet"))
 
-    s40 = Connection(LP_turbine_stg1, "out1", LP_FWH_4, "in1",
-                     label=state(14, "LP bleed 41.9 psia -> LP FWH 4", mark=True))
-    s40b = Connection(LP_turbine_stg1, "out2", LP_FWH_3_merge, "in2",
-                      label=state(14, "LP bleed 37.2 psia -> LP FWH 3", mark=True))
-    s41 = Connection(LP_turbine_stg1, "out3", LP_bleed_split_1, "in1",
-                     label=state(15, "LP stage 1 exhaust (12.56 psia)", mark=True))
-
-    s42 = Connection(LP_bleed_split_1, "out1", LP_FWH_2_merge, "in2",
-                     label=state(16, "LP bleed 2 -> LP FWH 2 shell", mark=True))
-    s43 = Connection(LP_bleed_split_1, "out2", LP_turbine_stg2, "in1",
-                     label=state(17, "LP stage 1 exhaust -> LP turbine stage 2 inlet", mark=True))
-
-    s44 = Connection(LP_turbine_stg2, "out1", LP_bleed_split_2, "in1",
-                     label=state(18, "LP stage 2 exhaust (LP bleed 3 pressure)", mark=True))
-    s45 = Connection(LP_bleed_split_2, "out1", LP_FWH_1_merge, "in2",
-                     label=state(19, "LP bleed 3 -> LP FWH 1 shell", mark=True))
-    s46 = Connection(LP_bleed_split_2, "out2", LP_turbine_stg3, "in1",
-                     label=state(20, "LP stage 2 exhaust -> LP turbine stage 3 inlet", mark=True))
-
-    s5 = Connection(LP_turbine_stg3, "out1", condenser_merge, "in1",
-                    label=state(21, "LP turbine exhaust -> condenser merge", mark=True))
+    s40 = Connection(LP_turbine_1, "out1", LP_FWH_4, "in1",
+                     label=state(14, "LP turbine 1 exhaust -> LP FWH 4", mark=True))
+    s40b = Connection(LP_turbine_2, "out1", LP_FWH_3_merge, "in2",
+                      label=state(15, "LP turbine 2 extraction -> LP FWH 3", mark=True))
+    s42 = Connection(LP_turbine_2, "out2", LP_FWH_2_merge, "in2",
+                     label=state(16, "LP turbine 2 exhaust -> LP FWH 2", mark=True))
+    s45 = Connection(LP_turbine_3, "out1", LP_FWH_1_merge, "in2",
+                     label=state(19, "LP turbine 3 extraction -> LP FWH 1", mark=True))
+    s5 = Connection(LP_turbine_3, "out2", condenser_merge, "in1",
+                    label=state(21, "LP turbine 3 exhaust -> condenser merge", mark=True))
 
     s6 = Connection(condenser_merge, "out1", condenser, "in1",
                     label=state(22, "condenser merge -> main condenser inlet", mark=True))
@@ -658,11 +647,9 @@ def solve_configuration1(
         eta_s1=eta_s_hp_turbine, eta_s2=eta_s_hp_turbine,
         eta_s3=eta_s_hp_turbine, eta_s4=eta_s_hp_turbine,
     )
-    LP_turbine_stg1.set_attr(
-        eta_s1=eta_s_lp_turbine, eta_s2=eta_s_lp_turbine, eta_s3=eta_s_lp_turbine,
-    )
-    LP_turbine_stg2.set_attr(eta_s=eta_s_lp_turbine)
-    LP_turbine_stg3.set_attr(eta_s=eta_s_lp_turbine)
+    LP_turbine_1.set_attr(eta_s=eta_s_lp_turbine)
+    LP_turbine_2.set_attr(eta_s1=eta_s_lp_turbine, eta_s2=eta_s_lp_turbine)
+    LP_turbine_3.set_attr(eta_s1=eta_s_lp_turbine, eta_s2=eta_s_lp_turbine)
 
     # Interstage heaters. Each shell condenses to x=0 (set on c31/c33) and each cold
     # outlet temperature is fixed (c2d, c2b), so the bleed mass flows follow from the
@@ -723,6 +710,9 @@ def solve_configuration1(
     s2a.set_attr(m0=1280, h0=2.782e6)
     s2d.set_attr(m0=1280, h0=2.863e6)
     s2b.set_attr(T=T_lp_inlet, m0=1280, h0=2.950e6)
+    s2b1.set_attr(m0=43, h0=2.950e6)
+    s2b2.set_attr(m0=118, h0=2.950e6)
+    s2b3.set_attr(m0=1119, h0=2.950e6)
     s2c.set_attr(m0=172, h0=7.87e5)
     s2c_da.set_attr(m0=172, h0=7.87e5)
     s30.set_attr(p=p_hp_bleed_1, m=83.07, h0=2.740e6)
@@ -739,15 +729,11 @@ def solve_configuration1(
     s37.set_attr(m0=218, h0=1.706e6)
 
     s40.set_attr(p=p_lp_bleed_1, m0=43, h0=2.775e6)
-    s40b.set_attr(p=p_lp_bleed_4, m0=75, h0=2.685e6)
-    s41.set_attr(p=p_lp_bleed_2, m0=1112, h0=2.535e6)
-    s42.set_attr(m0=43, h0=2.535e6)
-    s43.set_attr(m0=1069, h0=2.535e6)
-    s44.set_attr(p=p_lp_bleed_3, m0=1069, h0=2.435e6)
-    s45.set_attr(m0=10, h0=2.435e6)
-    s46.set_attr(m0=1059, h0=2.435e6)
+    s40b.set_attr(p=p_lp_bleed_4, m0=75, h0=2.770e6)
+    s42.set_attr(p=p_lp_bleed_2, m0=43, h0=2.550e6)
+    s45.set_attr(p=p_lp_bleed_3, m0=50, h0=2.490e6)
 
-    s5.set_attr(p=p_condenser, m0=1006, h0=2.443e6)
+    s5.set_attr(p=p_condenser, m0=1069, h0=2.350e6)
 
     s8.set_attr(p=p_condensate, m0=1286, h0=1.81e5)
     s60.set_attr(m0=1286, h0=2.03e5)
@@ -791,11 +777,12 @@ def solve_configuration1(
     s71.set_attr(m0=884, h0=3.158e5)
 
     SteamCycle.add_conns(
-        s1, s1a, s1b, s1c, s1d, s2_hp, s2, s2_da, s2a, s2b, s2c, s2c_da, s2d, s3, s5,
+        s1, s1a, s1b, s1c, s1d, s2_hp, s2, s2_da, s2a, s2b, s2b1, s2b2, s2b3,
+        s2c, s2c_da, s2d, s3, s5,
         s6, s7, s8, s9, s9d, s9a, s10, s11, s12, s13, s14, s15,
         s16, s17, s18, s19, s20, s0, s1_1, s1_2,
         s30, s31, s32, s33, s34, s35, s36, s37, s38, s39,
-        s40, s40b, s41, s42, s43, s44, s45, s46,
+        s40, s40b, s42, s45,
         s60, s61, s62, s63, s64, s65, s66, s67, s68, s69, s70, s71,
         s72, s73, s74
     )
@@ -804,7 +791,7 @@ def solve_configuration1(
 
 
 
-    turbine_list = [HP_turbine, LP_turbine_stg1,LP_turbine_stg2, LP_turbine_stg3]
+    turbine_list = [HP_turbine, LP_turbine_1, LP_turbine_2, LP_turbine_3]
     pump_list = [condensate_pump, HP_pump]
 
 
