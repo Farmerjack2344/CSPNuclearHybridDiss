@@ -2,6 +2,7 @@
 .idea/
 __pycache__/
 /NRC_PDFs
+/Previous Versions
 Tests.ipynb
 Test.py
 output

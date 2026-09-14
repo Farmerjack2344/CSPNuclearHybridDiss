@@ -129,7 +129,10 @@ def plotting_fluids_2():
     pyplot.show()
 
 def plotting_p_nuclear_condenser_2():
-    # The pressure coming out of the turbine
+    """
+    LP turbine stage 3 to condenser merge
+    :return:
+    """
     pressure_values = np.linspace(0.85e5, 1.2e5, 50)
     #There is something stoppping from dropping pressure
     power_values = []
@@ -187,13 +190,16 @@ def plotting_p_nuclear_condenser_2():
     pyplot.savefig(fr"ModelResults\{Title}",dpi=150,bbox_inches='tight')
 
 def plotting_evaporator_secondary_2():
-    pressure_values = np.linspace(5e5, 1.25e6, 70)
+    """
+    p_evaporator_secondary is nulcear condenser out to ORC superheater in
+    """
+    pressure_values = np.linspace(6e5, 1.1e6, 70)
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
     exergy_efficiency_values = []
     for pressure in pressure_values:
-        results = solve_configuration2(p_evaporator_secondary=pressure, hourly=False, print_results=False)
+        results = solve_configuration2(p_evaporator_secondary=pressure, p_nuclear_condenser=0.90e5,hourly=False, print_results=False)
         power_values.append(results["P_net"])
         efficiency_values.append(results["efficiency"])
         solar_efficiency_values.append(results["solar_efficiency"])
@@ -342,144 +348,6 @@ def plotting_condenser_secondary_2():
     pyplot.tight_layout()
     pyplot.show()
 
-
-
-def _solve_single_point_pressure(args):
-    """Worker function — must be top-level (picklable) for multiprocessing."""
-    HP_pressure, LP_pressure = args
-    results = solve_configuration2(
-        p_hp_exhaust_secondary=HP_pressure,
-        p_condenser_secondary=LP_pressure,
-        hourly=False,
-        print_results=False
-    )
-    return (
-        results["P_net"],
-        results["efficiency"],
-        results["solar_efficiency"],
-        results["efficiency_II"],
-    )
-
-
-def plotting_HP_LP_Turbine_outlets_2():
-    HP_pressure_values = np.linspace(3e5, 5e5, 70)
-    LP_pressure_values = np.linspace(0.9e5, 2e5, 70)
-
-    # xy meshgrid: Z must be (n_HP, n_LP) to match contourf/pcolormesh (Y, X).
-    # ravel() then reshape(HP_grid.shape) keeps that orientation — no .T guess.
-    LP_grid, HP_grid = np.meshgrid(LP_pressure_values, HP_pressure_values)
-    grid_points = list(zip(HP_grid.ravel(), LP_grid.ravel()))
-
-    with Pool(processes=max(cpu_count() - 1, 1)) as pool:
-        raw_results = pool.map(_solve_single_point_pressure, grid_points)
-
-    shape = HP_grid.shape
-    power_values = np.array([r[0] for r in raw_results], dtype=float).reshape(shape)
-    efficiency_values = np.array([r[1] for r in raw_results], dtype=float).reshape(shape)
-    solar_efficiency_values = np.array([r[2] for r in raw_results], dtype=float).reshape(shape)
-    exergy_efficiency_values = np.array([r[3] for r in raw_results], dtype=float).reshape(shape)
-
-    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
-
-    # pcolormesh plots the grid itself. contourf with ~10 automatic levels turns a
-    # field that is almost f(LP) into fat vertical bands ("pinstripes").
-    power_plot = ax[0, 0].pcolormesh(
-        LP_grid, HP_grid, power_values, cmap=cm.viridis, shading="auto")
-    ax[0, 0].set_ylabel("HP turbine outlet pressure (Pa)")
-    ax[0, 0].set_xlabel("LP turbine outlet Pressure (Pa)")
-    ax[0, 0].set_title("Power Output Vs. Secondary LP and HP Turbine Outlet Pressure", fontsize=13)
-    cbar_1 = pyplot.colorbar(power_plot, ax=ax[0, 0])
-    cbar_1.set_label("Power (W)")
-
-    efficiency_plot = ax[0, 1].pcolormesh(
-        LP_grid, HP_grid, np.multiply(efficiency_values, 100), cmap=cm.viridis, shading="auto")
-    ax[0, 1].set_ylabel("HP turbine outlet pressure (Pa)")
-    ax[0, 1].set_xlabel("LP turbine outlet Pressure (Pa)")
-    ax[0, 1].set_title("Efficiency Vs. Secondary LP and HP Turbine Outlet Pressure", fontsize=13)
-    cbar_2 = pyplot.colorbar(efficiency_plot, ax=ax[0, 1])
-    cbar_2.set_label("Efficiency (%)")
-
-    solar_efficiency_plot = ax[1, 1].pcolormesh(
-        LP_grid, HP_grid, np.multiply(solar_efficiency_values, 100), cmap=cm.viridis, shading="auto")
-    ax[1, 1].set_ylabel("HP turbine outlet pressure (Pa)")
-    ax[1, 1].set_xlabel("LP turbine outlet Pressure (Pa)")
-    ax[1, 1].set_title("Solar Efficiency Vs. Secondary LP and HP Turbine Outlet Pressure", fontsize=13)
-    cbar_3 = pyplot.colorbar(solar_efficiency_plot, ax=ax[1, 1])
-    cbar_3.set_label("Solar Efficiency (%)")
-
-    exergy_plot = ax[1, 0].pcolormesh(
-        LP_grid, HP_grid, np.multiply(exergy_efficiency_values, 100), cmap=cm.viridis, shading="auto")
-    ax[1, 0].set_ylabel("HP turbine outlet pressure (Pa)")
-    ax[1, 0].set_xlabel("LP turbine outlet Pressure (Pa)")
-    ax[1, 0].set_title("Exergy Vs. Secondary LP and HP Turbine Outlet Pressure", fontsize=13)
-    cbar_4 = pyplot.colorbar(exergy_plot, ax=ax[1, 0])
-    cbar_4.set_label("Exergy (%)")
-
-    ax[0, 0].grid(True)
-    ax[0, 1].grid(True)
-    ax[1, 0].grid(True)
-    ax[1, 1].grid(True, alpha=0.3)
-
-    Title = "Effect of Secondary LP and HP Turbine Outlet Pressure on System Performance"
-    fig.suptitle(Title, fontsize=16, fontweight="bold")
-
-    pyplot.tight_layout()
-    pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches='tight')  # save BEFORE show
-    pyplot.show()
-
-def plotting_ttd_u_2():
-    ttd_u_values = np.linspace(2, 16, 50)
-    power_values = []
-    efficiency_values = []
-    solar_efficiency_values = []
-    exergy_efficiency_values = []
-    for ttd_u in ttd_u_values:
-        results = solve_configuration2(ttd_u_fwh=ttd_u, hourly=False, print_results=False)
-        power_values.append(results["P_net"])
-        efficiency_values.append(results["efficiency"])
-        solar_efficiency_values.append(results["solar_efficiency"])
-        exergy_efficiency_values.append(results["efficiency_II"])
-
-    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
-    # Power plot
-    ax[0, 0].plot(ttd_u_values, power_values, linewidth=2)
-    ax[0, 0].set_ylabel("Power (W)")
-    ax[0, 0].set_xlabel("Terminal Temperature Difference (K)")
-    ax[0, 0].set_title("Power Output Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
-
-    # Efficiency Plot
-    ax[0, 1].plot(ttd_u_values, percentage(efficiency_values), linewidth=2)
-    ax[0, 1].set_ylabel("Efficiency (%)")
-    ax[0, 1].set_xlabel("Terminal Temperature Difference (K)")
-    ax[0, 1].set_title("Efficiency Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
-
-    # Solar Efficiency Plot
-    ax[1, 1].plot(ttd_u_values, percentage(solar_efficiency_values), linewidth=2)
-    ax[1, 1].set_ylabel("Efficiency (%)")
-    ax[1, 1].set_xlabel("Terminal Temperature Difference (K)")
-    ax[1, 1].set_title("Solar Efficiency Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
-
-    # Exergy Efficiency Plot
-    ax[1, 0].plot(ttd_u_values, percentage(exergy_efficiency_values), linewidth=2)
-    ax[1, 0].set_ylabel("Exergy (%)")
-    ax[1, 0].set_xlabel("Terminal Temperature Difference (K)")
-    ax[1, 0].set_title("Exergy Vs. Feedwater Heater Terminal Temperature Difference (K)", fontsize=13)
-
-    ax[0, 0].grid(True)
-    ax[0, 1].grid(True)
-    ax[1, 0].grid(True)
-    ax[1, 1].grid(True, alpha=0.3)
-
-    Title = "Effect of Terminal Temperature Difference on System Performance"
-    fig.suptitle(
-        Title,
-        fontsize=16,
-        fontweight="bold"
-    )
-
-    pyplot.tight_layout()
-    pyplot.show()
-    pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches='tight')
 
 def _solve_q_design_month(args):
     """Worker: one Q_design over n_days of hourly weather. Must stay top-level for Windows multiprocessing."""
@@ -834,7 +702,7 @@ def plotting_comparison(day_number=222):
 if __name__ == "__main__":
     # Config 2
     plotting_p_nuclear_condenser_2()
-    # plotting_evaporator_secondary_2()
+    plotting_evaporator_secondary_2()
     # plotting_reheat_fraction_2()
     # plotting_condenser_secondary_2()
     # plotting_HP_LP_Turbine_outlets_2()
