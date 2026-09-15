@@ -34,9 +34,7 @@ def trim_results(*networks):
             if isinstance(comp, Valve):
                 comp.set_attr(printout=False)
 
-# ---------------------------------------------------------------------------
-# Solar field helper functions: to calculate thermal loss
-# ---------------------------------------------------------------------------
+
 def cos_theta(day_of_year, solar_hour, solar_elevation_deg):
     """Incidence angle factor for a north-south axis, east-west tracking trough.
 
@@ -95,8 +93,8 @@ def Q_solar_field(hour_num, DNI, T_amb_K, collector_area, optical_efficiency,
 
     :param hour_num: Hour after midnight
     :param DNI: Direct Normal Irraidiance
-    :param T_amb_K: AMbient temperature in Kelvin
-    :param collector_area: Area of the colelctor
+    :param T_amb_K: Ambient temperature in Kelvin
+    :param collector_area: Area of the collector
     :param optical_efficiency:
     :param T_htf_in:
     :param mdot_htf:
@@ -206,7 +204,7 @@ tank = MoltenSaltTank(
 #----------------------------------------------------------------------------
 
 # Power block design THERMAL input
-Q_design_thermal = 118.958e6 + 21.479e6
+
 collector_area = 510120      # m^2, Andasol-1 aperture
 optical_efficiency = 0.75
 T_htf_in = 273.15 + 293        # K, HTF returned to the field from the SG
@@ -242,6 +240,7 @@ def solve_configuration1(
         reheat_fraction=21.479 / (118.958 + 21.479),  # solar duty sent to the reheater
         #
         main_mass_flow_bleed=66/1891,
+        Q_design_thermal = 118.958e6 + 21.479e6,
 
         # --- Live steam state ---
         p_main_steam=5.571e6,                # Pa
@@ -275,6 +274,7 @@ def solve_configuration1(
         verbose=True,
         results_csv="ModelResults/configuration_1_hourly.csv",
         design_point_out=None,
+        print_results=True,
         hourly=True,
 ):
     """Solve configuration 1: solar heat injected into the nuclear steam cycle.
@@ -305,7 +305,7 @@ def solve_configuration1(
     pr_solar_reheater = 0.97
     pr_oil_sg = 0.95
 
-    OilLoop = Network()
+    OilLoop = Network(iterinfo=print_results)
     OilLoop.units.set_defaults(
         temperature="K", pressure="Pa", pressure_difference="Pa",
         enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
@@ -375,21 +375,10 @@ def solve_configuration1(
     # linked ONLY by matching duty: steam_side_sg.Q = -oil_side_sg.Q each
     # timestep (energy in = energy out, no shared TESPy connection since they
     # are different fluids in different networks).
-    #
-    # Andasol-1 regenerates feed water through three LP heaters, a deaerator and
-    # two HP heaters, reaching 250 C before the boiler. That train is lumped here
-    # into two open heaters: a deaerator on an LP extraction at 10.04 bar (180 C,
-    # the paper's deaerator state) and a second heater on the HP exhaust at
-    # 20.72 bar, which takes feed water to about 214 C. Without any regeneration
-    # the boiler would be fed at condenser temperature, which cannot be squared
-    # with an HTF loop that returns to the field at 293 C. Keeping the larger of
-    # the two extractions downstream of the reheater also matters: bleed it all off
-    # the HP exhaust instead and the reheater has so little steam to heat that its
-    # outlet comes out hotter than the 393 C oil supposedly heating it.
     # ---------------------------------------------------------------------------
     log = []
 
-    SteamCycle = Network()
+    SteamCycle = Network(iterinfo=print_results)
     SteamCycle.units.set_defaults(
         temperature="K",
         pressure="Pa",
@@ -407,8 +396,7 @@ def solve_configuration1(
 
     cc = CycleCloser("cycle closer")
 
-    # Two steam generators, as built: the feedwater splits between them and the two
-    # main steam headers recombine ahead of the turbine stop valves.
+
     steam_generator_1 = SimpleHeatExchanger("steam generator 1")
     steam_generator_2 = SimpleHeatExchanger("steam generator 2")
 
@@ -424,9 +412,7 @@ def solve_configuration1(
 
     moisture_separator = DropletSeparator("moisture separator")
 
-    # Two-stage interstage reheat in process order. Heater 1 is the low-temperature
-    # stage (HP turbine stage-1 bleed on the hot inlet). Heater 2 follows it and is
-    # the high-temperature stage (main steam, after the solar reheater).
+
     interstage_heater_0 = SimpleHeatExchanger("interstage heater 0 : Solar input")
     interstage_heater_1 = HeatExchanger("interstage heater 1")
     interstage_heater_2 = HeatExchanger("interstage heater 2")
@@ -437,9 +423,7 @@ def solve_configuration1(
     RH_FWH_valve = Valve("reheater drain FWH drain valve")
     HP_FWH_2_shell_merge = Merge("HP FWH 2 shell merge", num_in=2)
 
-    # LP expansion: three turbine bodies in parallel off the reheater outlet.
-    # Turbine 1 expands to LP FWH 4. Turbine 2 is a two-stage machine (FWH 3
-    # then FWH 2). Turbine 3 extracts to LP FWH 1 and exhausts to the condenser.
+
     LP_inlet_split = Splitter("LP turbine inlet splitter", num_out=3)
     LP_turbine_1 = Turbine("LP turbine 1")
     LP_turbine_2 = MultiStageExtractionTurbine("LP turbine 2", num_stages=2)
@@ -447,11 +431,6 @@ def solve_configuration1(
 
     condensate_pump = Pump("condenser pump")
 
-    # Four-heater LP train, cascaded shell drains. LP FWH 1 is the coldest (fed
-    # from the condenser); LP FWH 4 is the hottest. Each heater takes a bleed
-    # from one of the parallel LP turbines. Each shell outlet is throttled
-    # down to the next bleed pressure and merges with that bleed, and the last
-    # drain lands on the condenser merge.
     LP_FWH_1 = HeatExchanger("LP FWH 1")
     LP_FWH_1_merge = Merge("LP FWH 1 shell merge", num_in=2)
     LP_FWH_1_valve = Valve("LP FWH 1 drain valve")
@@ -494,9 +473,6 @@ def solve_configuration1(
                      label=state(5, "solar reheater outlet -> reheat stage 2 shell", mark=True))
 
 
-
-    # MultiStageExtrastionTurbine: out1 is after stage 1 (highest outlet P),
-    # outN is the exhaust (lowest P). Stage i+1 uses out{i}'s (p, h) as its inlet.
     s2_hp = Connection(HP_turbine, "out4", hp_exhaust_split, "in1",
                        label=state(9, "HP turbine exhaust -> splitter", mark=True))
     s2 = Connection(hp_exhaust_split, "out1", moisture_separator, "in1",
@@ -504,8 +480,8 @@ def solve_configuration1(
     s2_da = Connection(hp_exhaust_split, "out2", deaerator, "in4",
                        label=state(9, "HP exhaust steam -> deaerator"))
 
-    # DropletSeparator: out1 is the saturated liquid drain, out2 the saturated vapour
-    # that goes on to the interstage reheaters and the LP turbine.
+
+
     s2a = Connection(moisture_separator, "out2", interstage_heater_1, "in2",
                      label=state(11, "separated vapour -> reheat stage 1", mark=True))
 
@@ -629,11 +605,7 @@ def solve_configuration1(
 
     condenser.set_attr(pr1=1, pr2=0.98)
 
-    # Each steam generator carries its DCD rating of 1707 MWt, so the total NSSS heat
-    # input is 3414 MWt and the main steam flow follows from the two duties. Only one
-    # of the two shells may carry a pressure spec: both outlets are pinned to the main
-    # steam header pressure by the merge, so a second pr equation would be redundant
-    # with it and leave the Jacobian singular.
+
     steam_generator_1.set_attr(pr=pr_steam_generator, Q=steam_generator_duty)
     steam_generator_2.set_attr(Q=steam_generator_duty)
 
@@ -641,8 +613,7 @@ def solve_configuration1(
     super_heater.set_attr(pr=pr_solar_superheater)
     interstage_heater_0.set_attr(pr=pr_solar_reheater)
 
-    # Isentropic efficiencies are the DCD-consistent values that land the shaft output
-    # at 1200 MW: the wet LP stages run well below dry-expansion efficiency.
+
     HP_turbine.set_attr(
         eta_s1=eta_s_hp_turbine, eta_s2=eta_s_hp_turbine,
         eta_s3=eta_s_hp_turbine, eta_s4=eta_s_hp_turbine,
@@ -651,24 +622,14 @@ def solve_configuration1(
     LP_turbine_2.set_attr(eta_s1=eta_s_lp_turbine, eta_s2=eta_s_lp_turbine)
     LP_turbine_3.set_attr(eta_s1=eta_s_lp_turbine, eta_s2=eta_s_lp_turbine)
 
-    # Interstage heaters. Each shell condenses to x=0 (set on c31/c33) and each cold
-    # outlet temperature is fixed (c2d, c2b), so the bleed mass flows follow from the
-    # two energy balances. No ttd spec belongs here: the cold outlet temperature
-    # already occupies that degree of freedom. pr2=0.98 per stage lands the LP inlet
-    # at 1.088 MPa, inside the DCD's 1.073-1.096 MPa band.
+
     interstage_heater_2.set_attr(pr1=0.97, pr2=0.98)
     interstage_heater_1.set_attr(pr1=0.97, pr2=0.98)
 
-    # The merged reheater drains are the highest-pressure drain in the plant, so they
-    # feed their own heater at the hot end of the feedwater train. The shell receives
-    # (nearly) saturated liquid, so this is a drain cooler: ttd_l, not ttd_u.
+
     RH_FWH.set_attr(ttd_l=ttd_l_drain_cooler, pr1=0.97, pr2=0.97)
 
-    # Every heater fed by wet steam has a shell temperature fixed by pressure alone
-    # (dT/dh = 0), so a ttd equation reduces to a constraint on the single feedwater
-    # enthalpy it references and no two heaters may reference the same one. Using
-    # ttd_u throughout keeps each heater on its own cold outlet, and the drains are
-    # pinned with x=0 on their own connections instead.
+
     HP_FWH_2.set_attr(
         ttd_u=ttd_u_fwh,
         pr1=0.97,
@@ -835,7 +796,8 @@ def solve_configuration1(
             T_htf_in=T_htf_in, mdot_htf=mdot_htf, htf=htf,
             day_of_year=day_of_year, solar_elevation_deg=solar_elevation,
         )
-        print(f"DNI: {DNI}, Q Solar: {Q_solar}")
+        if print_results:
+            print(f"DNI: {DNI}, Q Solar: {Q_solar}")
         solar_field.set_attr(Q=Q_solar)
         step = dispatch(Q_solar=Q_solar, Q_design=Q_design_thermal, tank=tank, dt=dt)
 
@@ -905,42 +867,43 @@ def solve_configuration1(
         tick += 1
         if not verbose:
             continue
-        print("\n" * 5)
-        print(f"Turbine power: {step["P_turbine"]}")
-        print(f"Pump power: {step["P_pumps"]}")
-        print(f"Efficiency: {step["efficiency"]}")
+        if print_results:
+            print("\n" * 5)
+            print(f"Turbine power: {step["P_turbine"]}")
+            print(f"Pump power: {step["P_pumps"]}")
+            print(f"Efficiency: {step["efficiency"]}")
 
-        print(Style.BRIGHT + Fore.MAGENTA +"""\n\n\n\n
-                ###########################################################################################
-                #                                                                                         #
-                #                                Steam Cycle                                              #
-                #                                                                                         #
-                ###########################################################################################
-                """)
-        SteamCycle.print_results()
-        print(Style.BRIGHT + Fore.MAGENTA +"""\n\n\n\n
-                ###########################################################################################
-                #                                                                                         #
-                #                                Steam Cycle                                              #
-                #                                                                                         #
-                ###########################################################################################
-                """)
+            print(Style.BRIGHT + Fore.MAGENTA +"""\n\n\n\n
+                    ###########################################################################################
+                    #                                                                                         #
+                    #                                Steam Cycle                                              #
+                    #                                                                                         #
+                    ###########################################################################################
+                    """)
+            SteamCycle.print_results()
+            print(Style.BRIGHT + Fore.MAGENTA +"""\n\n\n\n
+                    ###########################################################################################
+                    #                                                                                         #
+                    #                                Steam Cycle                                              #
+                    #                                                                                         #
+                    ###########################################################################################
+                    """)
 
-        print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
-                        ###########################################################################################
-                        #                                                                                         #
-                        #                                Oil loop                                                 #
-                        #                                                                                         #
-                        ###########################################################################################
-                        """)
-        OilLoop.print_results()
-        print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
-                        ###########################################################################################
-                        #                                                                                         #
-                        #                                Oil loop                                              #
-                        #                                                                                         #
-                        ###########################################################################################
-                        """)
+            print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
+                            ###########################################################################################
+                            #                                                                                         #
+                            #                                Oil loop                                                 #
+                            #                                                                                         #
+                            ###########################################################################################
+                            """)
+            OilLoop.print_results()
+            print(Style.BRIGHT + Fore.GREEN + """\n\n\n\n
+                            ###########################################################################################
+                            #                                                                                         #
+                            #                                Oil loop                                              #
+                            #                                                                                         #
+                            ###########################################################################################
+                            """)
 
 
     results = pd.DataFrame(log)

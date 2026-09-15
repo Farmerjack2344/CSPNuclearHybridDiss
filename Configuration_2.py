@@ -222,7 +222,7 @@ def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network,
                                pr=pr_heat_in if in_service else 1.0)
     reheater.set_attr(Q=Q_to_steam * reheat_fraction,
                       pr=pr_reheater if in_service else 1.0)
-    Steam_network.solve("design")
+    Steam_network.solve("design",max_iter=100)
     P_turbine = -1 * (sum([i.P.val for i in turbine_list]))
     P_pumps = (sum([i.P.val for i in pump_list]))
     return P_turbine, P_pumps
@@ -250,17 +250,6 @@ tank = MoltenSaltTank(
 # ---------------------------------------------------------------------------
 # Field parameters
 #
-# Reference plant is Andasol-1 as modelled by Asfand et al. (2020),
-# "Thermodynamic Performance and Water Consumption of Hybrid Cooling System
-# Configurations for Concentrated Solar Power Plants", Sustainability 12, 4739.
-
-# Their Table 1/Table 4 design point:
-# HTF 618.1 kg/s delivered to the power block at 393 C
-# boiler duty 118.958 MW,
-# reheater duty 21.479 MW (a 90/10 split)
-# live steam 60.935 kg/s at 381 C and 105 bar
-# condenser duty 83.597 MW
-# gross output 55 MWe, net output 50 MWe.
 # ---------------------------------------------------------------------------
 
 Q_design_thermal = 118.958e6 + 21.479e6
@@ -320,7 +309,7 @@ def solve_configuration2(
         # --- Nuclear feedwater train ---
         p_condensate=1.28e6,                 # Pa, condensate pump discharge
         p_lp_fwh_4_shell=0.4137e6,           # unused; LP FWH 4 follows p_lp_bleed_1
-        ttd_u_fwh=2.222,                     # K, 4 F heater TTD on Fig 10.1-1
+        ttd_u_fwh=[2.222,2.222,2.22,2.22,2.22,2.22],                     # K, 4 F heater TTD on Fig 10.1-1
         ttd_l_drain_cooler=5.556,            # K, 10 F drain-cooler approach
 
         eta_s_hp_turbine=[0.8275, 0.9226, 0.8939, 0.8834],
@@ -379,7 +368,7 @@ def solve_configuration2(
         temperature="K", pressure="Pa", pressure_difference="Pa",
         enthalpy="J/kg", heat="W", power="W", mass_flow="kg/s",
     )
-    OilLoop.iterinfo = False
+    OilLoop.iterinfo = print_results
 
     cycle_closer_oil = CycleCloser("Oil Cycle Closer")
     htf_pump = Pump("HTF circulation pump")
@@ -664,27 +653,30 @@ def solve_configuration2(
 
     RH_FWH.set_attr(ttd_l=ttd_l_drain_cooler, pr1=0.97, pr2=0.97)
 
+    condensate_pump.set_attr(eta_s=eta_s_condensate_pump)
 
-    HP_FWH_2.set_attr(
-        ttd_u=ttd_u_fwh,
-        pr1=0.97,
-        pr2=0.97,
-    )
+    LP_FWH_1.set_attr(ttd_u=ttd_u_fwh[0], pr1=0.97, pr2=0.97)
+    LP_FWH_2.set_attr(ttd_u=ttd_u_fwh[1], pr1=0.97, pr2=0.97)
+    LP_FWH_3.set_attr(ttd_u=ttd_u_fwh[2], pr1=0.97, pr2=0.97)
+    LP_FWH_4.set_attr(ttd_u=ttd_u_fwh[3], pr1=0.97, pr2=0.97)
+
+    HP_pump.set_attr(eta_s=eta_s_feed_pump)
 
     HP_FWH_1.set_attr(
-        ttd_u=ttd_u_fwh,
+        ttd_u=ttd_u_fwh[4],
         pr1=0.97,
         pr2=0.97
     )
 
-    condensate_pump.set_attr(eta_s=eta_s_condensate_pump)
+    HP_FWH_2.set_attr(
+        ttd_u=ttd_u_fwh[5],
+        pr1=0.97,
+        pr2=0.97,
+    )
 
-    LP_FWH_1.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
-    LP_FWH_2.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
-    LP_FWH_3.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
-    LP_FWH_4.set_attr(ttd_u=ttd_u_fwh, pr1=0.97, pr2=0.97)
 
-    HP_pump.set_attr(eta_s=eta_s_feed_pump)
+
+
 
     # Main steam, DCD Fig 10.1-1: 808 psia / 1197.6 BTU/lb. The flow follows from the
     # two steam generator duties, so only a start value is given here.
