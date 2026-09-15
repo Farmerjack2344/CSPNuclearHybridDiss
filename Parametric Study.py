@@ -1228,31 +1228,7 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
     pyplot.show()
 
 
-def _config2_comparison_kwargs(T_cw_in=288.15, T_cw_out=300.15):
-    """Cyclopentane plant used in plotting_comparison, with ORC pressures mapped to that cycle's saturation temperatures."""
-    fluid = "Cyclopentane"
-    T_cond = PropsSI("T", "P", 1.9e5, "Q", 0, "R245fa")
-    T_evap = PropsSI("T", "P", 1.05e6, "Q", 0, "R245fa")
-    p_hp_frac = np.log(4.5e5 / 1.9e5) / np.log(1.05e6 / 1.9e5)
-    T_evap_fluid = min(T_evap, 0.95 * PropsSI("Tcrit", fluid))
-    p_cond = max(
-        PropsSI("P", "T", T_cond, "Q", 0, fluid),
-        PropsSI("P", "T", T_cw_out + 4.0, "Q", 0, fluid),
-    )
-    p_evap = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid)
-    p_hp = float(p_cond * (p_evap / p_cond) ** p_hp_frac)
-    return dict(
-        Q_design_thermal=80e6,
-        secondary_fluid={"CYCLOPENTANE": 1},
-        p_nuclear_condenser=90e3,
-        p_evaporator_secondary=p_evap,
-        p_hp_exhaust_secondary=p_hp,
-        p_condenser_secondary=p_cond,
-        ttd_u_fwh=[2.22, 4.8, 2.22, 4, 8, 8],
-        reheat_fraction=0.01,
-        T_cw_in=T_cw_in,
-        T_cw_out=T_cw_out,
-    )
+
 
 
 def plotting_seasonal_day_2(winter_day=15, summer_day=212):
@@ -1304,6 +1280,32 @@ def plotting_seasonal_day_2(winter_day=15, summer_day=212):
     pyplot.show()
 
 
+def _config2_comparison_kwargs(T_cw_in=288.15, T_cw_out=300.15):
+    """Cyclopentane plant used in plotting_comparison, with ORC pressures mapped to that cycle's saturation temperatures."""
+    fluid = "Cyclopentane"
+    T_cond = PropsSI("T", "P", 1.9e5, "Q", 0, "R245fa")
+    T_evap = PropsSI("T", "P", 1.05e6, "Q", 0, "R245fa")
+    p_hp_frac = np.log(4.5e5 / 1.9e5) / np.log(1.05e6 / 1.9e5)
+    T_evap_fluid = min(T_evap, 0.95 * PropsSI("Tcrit", fluid))
+    p_cond = max(
+        PropsSI("P", "T", T_cond, "Q", 0, fluid),
+        PropsSI("P", "T", T_cw_out + 4.0, "Q", 0, fluid),
+    )
+    p_evap = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid)
+    p_hp = float(p_cond * (p_evap / p_cond) ** p_hp_frac)
+    return dict(
+        Q_design_thermal=80e6,
+        secondary_fluid={"WATER":1},#{"CYCLOPENTANE": 1},
+        p_nuclear_condenser=90e3,
+        p_evaporator_secondary= 0.9 * p_evap,
+        p_hp_exhaust_secondary= 0.9 * p_hp,
+        p_condenser_secondary=p_cond,
+        ttd_u_fwh=[2.22, 4.8, 2.22, 4, 8, 8],
+        reheat_fraction=0.01,
+        T_cw_in=T_cw_in,
+        T_cw_out=T_cw_out,
+    )
+
 def plotting_comparison(day_number=222):
     plants = {
         "AP1000": "#222222",
@@ -1336,7 +1338,12 @@ def plotting_comparison(day_number=222):
 
     ap = solve_ap1000(print_results=False)
     ap = pd.DataFrame([{**ap, "hour": hour} for hour in range(24)])
-    c1 = solve_configuration1(day_number=day_number, hourly=True, verbose=False, results_csv=None)
+    c1 = solve_configuration1(main_mass_flow_bleed=0.023,
+                              p_condenser=8.5e3,
+                              reheat_fraction=0.06,
+                              T_lp_inlet=550,
+                              Q_design_thermal=140e6,
+        day_number=day_number, hourly=True, verbose=False, results_csv=None)
 
 
 
@@ -1375,7 +1382,7 @@ def plotting_comparison(day_number=222):
         axis.grid(True, alpha=0.3)
         axis.legend()
 
-    Title = "Plant Comparison over One Day"
+    Title = f"Plant Comparison over One Day {get_month(day_number,2023)}"
     fig.suptitle(Title, fontsize=16, fontweight="bold")
     pyplot.tight_layout()
     pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
@@ -1476,14 +1483,15 @@ if __name__ == "__main__":
 
 
     # Config 1
-    plotting_mass_flow_fraction_1()
-    plotting_p_condenser_1(season="summer")
-    plotting_p_condenser_1(season="winter")
-    plotting_reheat_fraction_1()
-    plotting_T_field_out_1()
-    plotting_T_lp_inlet_1()
-    plotting_ttd_u_1()
-    plotting_seasonal_day_1()
-    plotting_Q_design_thermal_1(start_day=212)
+    # plotting_mass_flow_fraction_1()
+    # plotting_p_condenser_1(season="summer")
+    # plotting_p_condenser_1(season="winter")
+    # plotting_reheat_fraction_1()
+    # plotting_T_field_out_1()
+    # plotting_T_lp_inlet_1()
+    # plotting_ttd_u_1()
+    # plotting_seasonal_day_1()
+    # plotting_Q_design_thermal_1(start_day=212)
 
-    #plotting_comparison()
+    plotting_comparison()
+    plotting_comparison(day_number=30)
