@@ -261,8 +261,6 @@ def solve_andasol1(
         results_csv="ModelResults/andasol1_hourly.csv",
 ):
     log = []
-    tank.m_hot = 0.0
-    tank.m_cold = tank.m_total
 
     OilLoop = Network()
     OilLoop.units.set_defaults(
@@ -501,27 +499,27 @@ def solve_andasol1(
 
 
     def solve_power_block(Q_to_steam):
-        """Solve the steam cycle against the duty the HTF loop gave up.
-
-        Live-steam mass flow is the handle, not boiler Q. The oil-side duty only
-        scales m off the 60.935 kg/s design point; SG and reheater duties then
-        follow from the fixed states.
-
-        Returns gross turbine output and the feed water pumping parasitics, both W.
-        """
+        in_service = Q_to_steam > 0
+        if not in_service:
+            return 0.0, 0.0
         scale = Q_to_steam / Q_design_thermal
         s2.set_attr(m=M_LIVE_DESIGN * scale)
         s_leak.set_attr(m=M_LEAK_DESIGN * scale)
         s_makeup.set_attr(m=M_LEAK_DESIGN * scale)
         steam_side_sg.set_attr(Q=None)
         steam_side_reheater.set_attr(Q=None)
-        SteamCycle.solve("design")
+        SteamCycle.solve("design", max_iter=200)
         P_turbine = -(HP_turbine.P.val + LP_turbine.P.val)
         P_pumps = condensate_pump.P.val + feed_pump.P.val
         return P_turbine, P_pumps
 
+    def solve_design_point():
+        Q_to_steam_design = solve_oil_loop(Q_design_thermal, 0.0, 0.0)
+        return solve_power_block(Q_to_steam_design)
 
-
+    P_turbine_design, P_pumps_design = solve_design_point()
+    tank.m_hot = tank.m_total
+    tank.m_cold = 0.0
 
     start = max(24 * day_number - 1, 0)
     if hourly:
@@ -546,13 +544,11 @@ def solve_andasol1(
             Q_solar - step["Q_defocus"], step["Q_to_storage"], step["Q_from_storage"]
         )
 
-        # If the Heat transfer to power block is greater than 0
-        if step["Q_to_pb"] > 0 and Q_to_steam > Q_MIN_BRANCH:
-            P_turbine, P_pumps = solve_power_block(Q_to_steam)
-            m_steam = s2.m.val
-        else:
+        if step["Q_to_pb"] <= 0 or Q_to_steam <= Q_MIN_BRANCH:
             Q_to_steam = 0.0
-            P_turbine, P_pumps, m_steam = 0.0, 0.0, 0.0
+
+        P_turbine, P_pumps = solve_power_block(Q_to_steam)
+        m_steam = s2.m.val if Q_to_steam > 0 else 0.0
 
         step["hour"] = hour_num
         step["day_of_year"] = day_of_year

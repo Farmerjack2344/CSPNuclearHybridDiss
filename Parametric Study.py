@@ -1280,9 +1280,8 @@ def plotting_seasonal_day_2(winter_day=15, summer_day=212):
     pyplot.show()
 
 
-def _config2_comparison_kwargs(T_cw_in=288.15, T_cw_out=300.15):
+def _config2_comparison_kwargs(T_cw_in=288.15, T_cw_out=300.15, fluid="Cyclopentane"):
     """Cyclopentane plant used in plotting_comparison, with ORC pressures mapped to that cycle's saturation temperatures."""
-    fluid = "Cyclopentane"
     T_cond = PropsSI("T", "P", 1.9e5, "Q", 0, "R245fa")
     T_evap = PropsSI("T", "P", 1.05e6, "Q", 0, "R245fa")
     p_hp_frac = np.log(4.5e5 / 1.9e5) / np.log(1.05e6 / 1.9e5)
@@ -1293,12 +1292,14 @@ def _config2_comparison_kwargs(T_cw_in=288.15, T_cw_out=300.15):
     )
     p_evap = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid)
     p_hp = float(p_cond * (p_evap / p_cond) ** p_hp_frac)
+    p_scale = 0.9 if fluid.upper() == "WATER" else 1.0
+    tespy_fluid = "WATER" if fluid.upper() == "WATER" else fluid.upper()
     return dict(
         Q_design_thermal=80e6,
-        secondary_fluid={"WATER":1},#{"CYCLOPENTANE": 1},
+        secondary_fluid={tespy_fluid: 1},
         p_nuclear_condenser=90e3,
-        p_evaporator_secondary= 0.9 * p_evap,
-        p_hp_exhaust_secondary= 0.9 * p_hp,
+        p_evaporator_secondary=p_scale * p_evap,
+        p_hp_exhaust_secondary=p_scale * p_hp,
         p_condenser_secondary=p_cond,
         ttd_u_fwh=[2.22, 4.8, 2.22, 4, 8, 8],
         reheat_fraction=0.01,
@@ -1306,7 +1307,7 @@ def _config2_comparison_kwargs(T_cw_in=288.15, T_cw_out=300.15):
         T_cw_out=T_cw_out,
     )
 
-def plotting_comparison(day_number=222):
+def plotting_comparison(day_number=222, config2_kwargs=None):
     plants = {
         "AP1000": "#222222",
         "Configuration 1": "#1f77b4",
@@ -1347,8 +1348,9 @@ def plotting_comparison(day_number=222):
 
 
 
+    c2_kwargs = _config2_comparison_kwargs() if config2_kwargs is None else config2_kwargs
     c2 = solve_configuration2(
-        **_config2_comparison_kwargs(),
+        **c2_kwargs,
         day_number=day_number, n_days=1, verbose=False,
         results_csv=None, hourly=True, print_results=False)
 
@@ -1382,7 +1384,8 @@ def plotting_comparison(day_number=222):
         axis.grid(True, alpha=0.3)
         axis.legend()
 
-    Title = f"Plant Comparison over One Day {get_month(day_number,2023)}"
+    fluid_name = next(iter(c2_kwargs.get("secondary_fluid", {"CYCLOPENTANE": 1})))
+    Title = f"Plant Comparison over One Day {get_month(day_number,2023)} {fluid_name}"
     fig.suptitle(Title, fontsize=16, fontweight="bold")
     pyplot.tight_layout()
     pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
@@ -1495,3 +1498,5 @@ if __name__ == "__main__":
 
     plotting_comparison()
     plotting_comparison(day_number=30)
+    plotting_comparison(config2_kwargs=_config2_comparison_kwargs(fluid="Water"))
+    plotting_comparison(day_number=30, config2_kwargs=_config2_comparison_kwargs(fluid="Water"))
