@@ -876,9 +876,9 @@ def solve_configuration1(
             continue
         if print_results:
             print("\n" * 5)
-            print(f"Turbine power: {step["P_turbine"]}")
-            print(f"Pump power: {step["P_pumps"]}")
-            print(f"Efficiency: {step["efficiency"]}")
+            print(f"Turbine power: {step['P_turbine']}")
+            print(f"Pump power: {step['P_pumps']}")
+            print(f"Efficiency: {step['efficiency']}")
 
             print(Style.BRIGHT + Fore.MAGENTA +"""\n\n\n\n
                     ###########################################################################################

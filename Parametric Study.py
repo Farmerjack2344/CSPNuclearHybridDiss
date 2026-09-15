@@ -1,5 +1,3 @@
-from envs.matlab_env.Lib import datetime
-from envs.matlab_env.Lib.unittest import result
 from matplotlib import pyplot, cm
 from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
@@ -206,7 +204,9 @@ def plotting_T_lp_inlet_1():
 
     This is the steam state the Configuration 1 solar reheater exists to produce, so the sweep is a direct test of the integration concept. It shows how much extra LP expansion work is bought per kelvin of reheat and where pinch or moisture would stop you. That is the plot to cite when comparing this layout with a conventional moisture-separator reheater on an unaugmented AP1000.
     """
-    T_values = np.linspace(500.0, 560.0, 16)
+    # Floor is Tsat of HP bleed 1 plus 2 K: below that the solar reheater pinch reverses.
+    T_msr_stage1 = PropsSI("T", "P", 3.413025e6, "Q", 0, "Water")
+    T_values = np.linspace(T_msr_stage1 + 2.0, 560.0, 16)
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
@@ -314,22 +314,17 @@ def plotting_seasonal_day_1(winter_day=15, summer_day=212):
 
 def _solve_q_design_month_1(args):
     """Worker: one Q_design over n_days of hourly weather. Must stay top-level for Windows multiprocessing."""
-    Q_design, n_days, start_day, cache_path = args
-    expected_hours = 24 * n_days
-    if os.path.isfile(cache_path):
-        cached = pd.read_csv(cache_path)
-        if len(cached) == expected_hours:
-            return Q_design, cached
-
-    results = solve_configuration1(Q_design_thermal=Q_design, day_number=start_day, n_days=n_days, verbose=False,
-                                   results_csv=cache_path, hourly=True, print_results=False)
+    Q_design, n_days, start_day = args
+    results = solve_configuration1(
+        Q_design_thermal=Q_design, day_number=start_day, n_days=n_days, verbose=False,
+        results_csv=None, hourly=True, print_results=False)
     return Q_design, results
 
 
-def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0.40,q_frac_max=1.00,use_cache=True,):
+def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0.40,q_frac_max=1.00,):
     """Measures month-long net energy, energy-weighted first-law, solar and exergy efficiencies, power-block active hours, thermal capacity factor, defocused fraction, output fluctuation, diurnal power and tank SoC, daily energy spread and dispatch-mode hours against solar-section thermal rating.
 
-    This is the storage-sizing question: a larger Q_design harvests more noon sun but spends more hours below minimum load and cycles the tank differently. Configuration 1 never shuts the nuclear block, so Q_design only moves the solar share and the store, which is a different story from a standalone CSP plant or from Configuration 2's ORC-coupled solar section. Results are cached under ModelResults/q_design_study_config1 so they cannot be confused with the Configuration 2 sweep.
+    This is the storage-sizing question: a larger Q_design harvests more noon sun but spends more hours below minimum load and cycles the tank differently. Configuration 1 never shuts the nuclear block, so Q_design only moves the solar share and the store, which is a different story from a standalone CSP plant or from Configuration 2's ORC-coupled solar section. Every call reruns TESPy for the requested start_day window.
     """
     nuclear_heat_input = 2 * 1707e6
     dispatch_modes = [
@@ -340,9 +335,6 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
         "discharging",
         "shutdown",
     ]
-
-    def cache_path_for(cache_dir, Q_design):
-        return os.path.join(cache_dir, f"qdesign_{Q_design / 1e6:.1f}MW.csv")
 
     def numeric(series):
         return pd.to_numeric(series, errors="coerce")
@@ -410,27 +402,17 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
         }
 
     q_values = [float(q) for q in Q_DESIGN_REF * np.linspace(q_frac_min, q_frac_max, n_points)]
-    cache_dir = os.path.join("ModelResults", "q_design_study_config1")  # exclusive Config 1 cache so Config 2 CSVs are not reused
-    os.makedirs(cache_dir, exist_ok=True)
-    expected_hours = 24 * n_days
+    month_name = get_month(day_number=start_day, year=2023)
+    out_dir = os.path.join("ModelResults", "q_design_study_config1", month_name)
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"Q_design Config 1: {n_days} days from day {start_day} ({month_name} 2023), {n_points} points")
 
+    jobs = [(Q_design, n_days, start_day) for Q_design in q_values]
     loaded = {}
-    jobs = []
-    for Q_design in q_values:
-        cache_path = cache_path_for(cache_dir, Q_design)
-        if use_cache and os.path.isfile(cache_path):
-            cached = pd.read_csv(cache_path)
-            if len(cached) == expected_hours:
-                loaded[Q_design] = cached
-                continue
-        jobs.append((Q_design, n_days, start_day, cache_path))
-
-
-    if jobs:
-        workers = min(len(jobs), max(cpu_count() - 1, 1), 4)
-        with Pool(processes=workers) as pool:
-            for Q_design, df in pool.map(_solve_q_design_month_1, jobs):
-                loaded[float(Q_design)] = df
+    workers = min(len(jobs), max(cpu_count() - 1, 1), 4)
+    with Pool(processes=workers) as pool:
+        for Q_design, df in pool.map(_solve_q_design_month_1, jobs):
+            loaded[float(Q_design)] = df
 
     summaries = [summarise_month(loaded[q], q) for q in q_values]
     q_mw = np.array(q_values) / 1e6
@@ -440,7 +422,7 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
          if k not in ("daily_energy_MWh", "diurnal_P_net", "diurnal_soc", "mode_hours")}
         for s in summaries
     ])
-    summary_table.to_csv(os.path.join(cache_dir, "monthly_kpis.csv"), index=False)
+    summary_table.to_csv(os.path.join(out_dir, "monthly_kpis.csv"), index=False)
     print(summary_table.to_string(index=False))
 
     # ------------------------------------------------------------------
@@ -622,23 +604,29 @@ def plotting_fluids_2():
     for fluid in fluids:
         fluid_name = next(iter(fluid))
         try:
+
+
             T_evap_fluid = min(T_evap, 0.95 * PropsSI("Tcrit", fluid_name))
 
             p_condenser = PropsSI("P", "T", T_cond, "Q", 0, fluid_name)
             p_evaporator = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid_name)
             p_hp_exhaust = p_condenser * (p_evaporator / p_condenser) ** p_hp_frac
-            results = solve_configuration2(secondary_fluid=fluid, p_evaporator_secondary=p_evaporator,
+            results = solve_configuration2(secondary_fluid=fluid,
+                                           p_evaporator_secondary=p_evaporator,
+                                           ttd_u_fwh=[2.22, 4.8, 2.22, 4, 8, 8],
+                                           reheat_fraction=0.05,
                                            p_hp_exhaust_secondary=p_hp_exhaust, p_condenser_secondary=p_condenser,
                                            hourly=False, print_results=False)
+
             power_values.append(results["P_net"])
             efficiency_values.append(results["efficiency"])
             solar_efficiency_values.append(results["solar_efficiency"])
             exergy_efficiency_values.append(results["efficiency_II"])
         except:
-            power_values.append(1)
-            efficiency_values.append(1)
-            solar_efficiency_values.append(1)
-            exergy_efficiency_values.append(1)
+            power_values.append(0)
+            efficiency_values.append(0)
+            solar_efficiency_values.append(0)
+            exergy_efficiency_values.append(0)
 
     fig, ax = pyplot.subplots(2, 2, figsize=(20, 20))
     ax[0, 0].bar(labels, power_values,color=["orange"] + ["steelblue"] * (len(labels) - 1))
@@ -686,7 +674,7 @@ def plotting_p_nuclear_condenser_2():
     solar_efficiency_values = []
     exergy_efficiency_values = []
     for pressure in pressure_values:
-        results = solve_configuration2(p_nuclear_condenser=pressure, hourly=False, print_results=False)
+        results = solve_configuration2(secondary_fluid={"WATER":1},p_nuclear_condenser=pressure, hourly=False, print_results=False)
         power_values.append(results["P_net"])
         efficiency_values.append(results["efficiency"])
         solar_efficiency_values.append(results["solar_efficiency"])
@@ -981,24 +969,18 @@ def plotting_HP_LP_Turbine_outlets_2():
 
 def _solve_q_design_month(args):
     """Worker: one Q_design over n_days of hourly weather. Must stay top-level for Windows multiprocessing."""
-    Q_design, n_days, start_day, cache_path = args
-    expected_hours = 24 * n_days
-    if os.path.isfile(cache_path):
-        cached = pd.read_csv(cache_path)
-        if len(cached) == expected_hours:
-            return Q_design, cached
-
+    Q_design, n_days, start_day = args
     results = solve_configuration2(Q_design_thermal=Q_design,
                                    p_nuclear_condenser=90e3,
                                    p_evaporator_secondary=1.05e6,
                                    ttd_u_fwh=[2.22,4.8,2.22,4,8,8],
-                                   reheat_fraction=0.01,
+                                   reheat_fraction=0.05,
                                    day_number=start_day, n_days=n_days, verbose=False,
-                                   results_csv=cache_path, hourly=True, print_results=False)
+                                   results_csv=None, hourly=True, print_results=False)
     return Q_design, results
 
 
-def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.40,q_frac_max=1.00,use_cache=False,):
+def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.40,q_frac_max=1.00,):
     """Month-long Q_design sweep for the solar section (Configuration 2).
 
     Method
@@ -1013,10 +995,9 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
        - box plot of daily net energy (day-to-day spread at each Q_design)
        - stacked dispatch-mode hours (direct test of the "more active hours" claim)
 
-
-
-    Results are cached under ModelResults/q_design_study/ so replotting does not
-    rerun TESPy. Drop those CSVs, or set use_cache=False, to force a new sweep.
+    Every call reruns TESPy for the requested start_day window. Winter and summer
+    must not share files, because the hourly CSVs were previously keyed only by
+    Q_design and a January run would reuse July results.
     """
     nuclear_heat_input = 2 * 1707e6
     dispatch_modes = [
@@ -1027,9 +1008,6 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
         "discharging",
         "shutdown",
     ]
-
-    def cache_path_for(cache_dir, Q_design):
-        return os.path.join(cache_dir, f"qdesign_{Q_design / 1e6:.1f}MW.csv")
 
     def numeric(series):
         return pd.to_numeric(series, errors="coerce")
@@ -1097,27 +1075,17 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
         }
 
     q_values = [float(q) for q in Q_DESIGN_REF * np.linspace(q_frac_min, q_frac_max, n_points)]
-    cache_dir = os.path.join("ModelResults", "q_design_study")
-    os.makedirs(cache_dir, exist_ok=True)
-    expected_hours = 24 * n_days
+    month_name = get_month(day_number=start_day, year=2023)
+    out_dir = os.path.join("ModelResults", "q_design_study", month_name)
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"Q_design Config 2: {n_days} days from day {start_day} ({month_name} 2023), {n_points} points")
 
+    jobs = [(Q_design, n_days, start_day) for Q_design in q_values]
     loaded = {}
-    jobs = []
-    for Q_design in q_values:
-        cache_path = cache_path_for(cache_dir, Q_design)
-        if use_cache and os.path.isfile(cache_path):
-            cached = pd.read_csv(cache_path)
-            if len(cached) == expected_hours:
-                loaded[Q_design] = cached
-                continue
-        jobs.append((Q_design, n_days, start_day, cache_path))
-
-
-    if jobs:
-        workers = min(len(jobs), max(cpu_count() - 1, 1), 4)
-        with Pool(processes=workers) as pool:
-            for Q_design, df in pool.map(_solve_q_design_month, jobs):
-                loaded[float(Q_design)] = df
+    workers = min(len(jobs), max(cpu_count() - 1, 1), 4)
+    with Pool(processes=workers) as pool:
+        for Q_design, df in pool.map(_solve_q_design_month, jobs):
+            loaded[float(Q_design)] = df
 
     summaries = [summarise_month(loaded[q], q) for q in q_values]
     q_mw = np.array(q_values) / 1e6
@@ -1127,7 +1095,7 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
          if k not in ("daily_energy_MWh", "diurnal_P_net", "diurnal_soc", "mode_hours")}
         for s in summaries
     ])
-    summary_table.to_csv(os.path.join(cache_dir, "monthly_kpis.csv"), index=False)
+    summary_table.to_csv(os.path.join(out_dir, "monthly_kpis.csv"), index=False)
     print(summary_table.to_string(index=False))
 
     # ------------------------------------------------------------------
@@ -1260,6 +1228,82 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
     pyplot.show()
 
 
+def _config2_comparison_kwargs(T_cw_in=288.15, T_cw_out=300.15):
+    """Cyclopentane plant used in plotting_comparison, with ORC pressures mapped to that cycle's saturation temperatures."""
+    fluid = "Cyclopentane"
+    T_cond = PropsSI("T", "P", 1.9e5, "Q", 0, "R245fa")
+    T_evap = PropsSI("T", "P", 1.05e6, "Q", 0, "R245fa")
+    p_hp_frac = np.log(4.5e5 / 1.9e5) / np.log(1.05e6 / 1.9e5)
+    T_evap_fluid = min(T_evap, 0.95 * PropsSI("Tcrit", fluid))
+    p_cond = max(
+        PropsSI("P", "T", T_cond, "Q", 0, fluid),
+        PropsSI("P", "T", T_cw_out + 4.0, "Q", 0, fluid),
+    )
+    p_evap = PropsSI("P", "T", T_evap_fluid, "Q", 0, fluid)
+    p_hp = float(p_cond * (p_evap / p_cond) ** p_hp_frac)
+    return dict(
+        Q_design_thermal=80e6,
+        secondary_fluid={"CYCLOPENTANE": 1},
+        p_nuclear_condenser=90e3,
+        p_evaporator_secondary=p_evap,
+        p_hp_exhaust_secondary=p_hp,
+        p_condenser_secondary=p_cond,
+        ttd_u_fwh=[2.22, 4.8, 2.22, 4, 8, 8],
+        reheat_fraction=0.01,
+        T_cw_in=T_cw_in,
+        T_cw_out=T_cw_out,
+    )
+
+
+def plotting_seasonal_day_2(winter_day=15, summer_day=212):
+    """Measures hourly net power, first-law efficiency, solar incremental efficiency and exergy efficiency for one winter day against one summer day on Configuration 2, using the cyclopentane plant from the comparison and the same seasonal cooling-water temperatures as Configuration 1.
+
+    The overlay holds the nuclear-to-ORC coupling fixed and lets weather plus ORC sink temperature move together, which is the Configuration 2 counterpart of the Configuration 1 vacuum overlay. Nuclear condenser pressure stays at the comparison value because that duty is the ORC boiler, not the ambient sink. The figure is the one to cite when the bottoming cycle's cooling water, not only DNI, is claimed to shift summer versus winter output.
+    """
+    cases = {
+        "Winter": dict(day_number=winter_day, T_cw_in=283.15, T_cw_out=293.15, colour="#1f77b4"),
+        "Summer": dict(day_number=summer_day, T_cw_in=298.15, T_cw_out=310.15, colour="#d62728"),
+    }
+    traces = {}
+    for name, spec in cases.items():
+        df = solve_configuration2(
+            **_config2_comparison_kwargs(T_cw_in=spec["T_cw_in"], T_cw_out=spec["T_cw_out"]),
+            day_number=spec["day_number"], n_days=1, hourly=True, verbose=False,
+            print_results=False, results_csv=None)
+        traces[name] = (
+            pd.to_numeric(df["hour"], errors="coerce"),
+            pd.to_numeric(df["P_net"], errors="coerce"),
+            pd.to_numeric(df["efficiency"], errors="coerce"),
+            pd.to_numeric(df["solar_efficiency"], errors="coerce"),
+            pd.to_numeric(df["efficiency_II"], errors="coerce"),
+            spec["colour"],
+        )
+
+    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
+    panels = (
+        (ax[0, 0], 1, "Power (W)", False, "Net Power vs. Hour of Day"),
+        (ax[0, 1], 2, "Efficiency (%)", True, "Efficiency vs. Hour of Day"),
+        (ax[1, 0], 4, "Exergy (%)", True, "Exergy vs. Hour of Day"),
+        (ax[1, 1], 3, "Efficiency (%)", True, "Solar Efficiency vs. Hour of Day"),
+    )
+    for axis, idx, ylabel, as_percent, title in panels:
+        for name, trace in traces.items():
+            y = percentage(trace[idx]) if as_percent else trace[idx]
+            axis.plot(trace[0], y, color=trace[5], linewidth=2, label=name)
+        axis.set_xlabel("Hour of day")
+        axis.set_ylabel(ylabel)
+        axis.set_title(title, fontsize=13)
+        axis.set_xlim(0, 23)
+        axis.grid(True, alpha=0.3)
+        axis.legend()
+
+    Title = "Winter vs Summer Day with Seasonal Cooling Water (Configuration 2)"
+    fig.suptitle(Title, fontsize=16, fontweight="bold")
+    pyplot.tight_layout()
+    pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
+    pyplot.show()
+
+
 def plotting_comparison(day_number=222):
     plants = {
         "AP1000": "#222222",
@@ -1295,9 +1339,12 @@ def plotting_comparison(day_number=222):
     c1 = solve_configuration1(day_number=day_number, hourly=True, verbose=False, results_csv=None)
 
 
-    c2 = solve_configuration2(secondary_fluid="CYCLOPENTANE",
-        day_number=day_number, n_days=1, verbose=False, results_csv=None, hourly=True,
-                              print_results=False)
+
+    c2 = solve_configuration2(
+        **_config2_comparison_kwargs(),
+        day_number=day_number, n_days=1, verbose=False,
+        results_csv=None, hourly=True, print_results=False)
+
     an = solve_andasol1(day_number=day_number, n_days=1, hourly=True, print_results=False, verbose=False, results_csv=None,
     )
 
@@ -1416,26 +1463,27 @@ def plotting_ttd_u():
 if __name__ == "__main__":
     # Config 2
 
-    # plotting_p_nuclear_condenser_2()
-    # plotting_evaporator_secondary_2()
+    #plotting_p_nuclear_condenser_2()
+    #plotting_evaporator_secondary_2()
     #plotting_ttd_u()
     #plotting_HP_LP_Turbine_outlets_2()
     # plotting_T_pinch_2()
     #plotting_reheat_fraction_2()
-    plotting_Q_design_thermal(start_day=212)
-    plotting_Q_design_thermal(start_day=1)
+    # plotting_Q_design_thermal(start_day=212)
+    # plotting_Q_design_thermal(start_day=1)
     #plotting_fluids_2()
+    #plotting_seasonal_day_2()
 
 
     # Config 1
-    # plotting_mass_flow_fraction_1()
-    # plotting_p_condenser_1(season="summer")
-    # plotting_p_condenser_1(season="winter")
-    # plotting_reheat_fraction_1()
-    # plotting_T_field_out_1()
-    # plotting_T_lp_inlet_1()
-    # plotting_ttd_u_1()
-    # plotting_seasonal_day_1()
-    #plotting_Q_design_thermal_1(start_day=212)
+    plotting_mass_flow_fraction_1()
+    plotting_p_condenser_1(season="summer")
+    plotting_p_condenser_1(season="winter")
+    plotting_reheat_fraction_1()
+    plotting_T_field_out_1()
+    plotting_T_lp_inlet_1()
+    plotting_ttd_u_1()
+    plotting_seasonal_day_1()
+    plotting_Q_design_thermal_1(start_day=212)
 
     #plotting_comparison()

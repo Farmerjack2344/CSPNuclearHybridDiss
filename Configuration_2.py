@@ -984,9 +984,9 @@ def solve_configuration2(
 
         if verbose and print_results:
             print("\n" * 5)
-            print(f"Turbine power: {step["P_turbine"]}")
-            print(f"Pump power: {step["P_pumps"]}")
-            print(f"Efficiency: {step["efficiency"]}")
+            print(f"Turbine power: {step['P_turbine']}")
+            print(f"Pump power: {step['P_pumps']}")
+            print(f"Efficiency: {step['efficiency']}")
 
             print_results_split(SteamCycle, [
                 (banner("Nuclear steam cycle (topping)", Fore.MAGENTA),
@@ -1007,9 +1007,9 @@ def solve_configuration2(
 
     if log and print_results:
         print("\n" * 5)
-        print(f"Turbine power: {step["P_turbine"]}")
-        print(f"Pump power: {step["P_pumps"]}")
-        print(f"Efficiency: {step["efficiency"]}")
+        print(f"Turbine power: {step['P_turbine']}")
+        print(f"Pump power: {step['P_pumps']}")
+        print(f"Efficiency: {step['efficiency']}")
 
 
 
