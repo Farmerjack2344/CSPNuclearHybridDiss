@@ -352,12 +352,12 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
         Q_to_pb = numeric(df["Q_to_pb"])
         Q_defocus = numeric(df["Q_defocus"])
         Q_solar = numeric(df["Q_solar"])
-        eta_solar = numeric(df["solar_efficiency"])
         soc = numeric(df["tank_soc"])
         Q_in = Q_sg + nuclear_heat_input
 
         active = Q_to_pb > 0
-        solar_on = Q_sg > 0
+        solar_on = (Q_sg > 0) & P_net.notna()
+        solar_off = (Q_sg <= 0) & P_net.notna()
         hours_to_MWh = 1e-6
 
         work = df.copy()
@@ -370,8 +370,12 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
         P_active = P_net[active]
         cov = float(P_active.std() / P_active.mean()) if P_active.mean() else float("nan")
 
-        eta_s_num = (eta_solar[solar_on] * Q_sg[solar_on]).sum()
-        eta_s_den = Q_sg[solar_on].sum()
+        P_base = float(P_net[solar_off].mean()) if solar_off.any() else float("nan")
+        q_solar_sum = float(Q_sg[solar_on].sum())
+        eta_solar = (
+            float((P_net[solar_on] - P_base).sum() / q_solar_sum)
+            if q_solar_sum and pd.notna(P_base) else float("nan")
+        )
 
         if "ex_nuclear" in df.columns and "ex_solar" in df.columns:
             ex_in = numeric(df["ex_nuclear"]) + numeric(df["ex_solar"])
@@ -391,7 +395,7 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
             "n_hours": len(df),
             "E_net_MWh": float(P_net.sum() * hours_to_MWh),
             "eta_I": float(P_net.sum() / Q_in.sum()) if Q_in.sum() else float("nan"),
-            "eta_solar": float(eta_s_num / eta_s_den) if eta_s_den else float("nan"),
+            "eta_solar": eta_solar,
             "eta_II": eta_II,
             "active_hours": int(active.sum()),
             "capacity_factor": float(Q_to_pb.mean() / Q_design) if Q_design else float("nan"),
@@ -1019,12 +1023,12 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
         Q_to_pb = numeric(df["Q_to_pb"])
         Q_defocus = numeric(df["Q_defocus"])
         Q_solar = numeric(df["Q_solar"])
-        eta_solar = numeric(df["solar_efficiency"])
         soc = numeric(df["tank_soc"])
         Q_in = Q_sg + nuclear_heat_input
 
         active = Q_to_pb > 0
-        solar_on = Q_sg > 0
+        solar_on = (Q_sg > 0) & P_net.notna()
+        solar_off = (Q_sg <= 0) & P_net.notna()
         hours_to_MWh = 1e-6
 
         work = df.copy()
@@ -1037,8 +1041,12 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
         P_active = P_net[active]
         cov = float(P_active.std() / P_active.mean()) if P_active.mean() else float("nan")
 
-        eta_s_num = (eta_solar[solar_on] * Q_sg[solar_on]).sum()
-        eta_s_den = Q_sg[solar_on].sum()
+        P_base = float(P_net[solar_off].mean()) if solar_off.any() else float("nan")
+        q_solar_sum = float(Q_sg[solar_on].sum())
+        eta_solar = (
+            float((P_net[solar_on] - P_base).sum() / q_solar_sum)
+            if q_solar_sum and pd.notna(P_base) else float("nan")
+        )
 
         if "ex_nuclear" in df.columns and "ex_solar" in df.columns:
             ex_in = numeric(df["ex_nuclear"]) + numeric(df["ex_solar"])
@@ -1058,7 +1066,7 @@ def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.4
             "n_hours": len(df),
             "E_net_MWh": float(P_net.sum() * hours_to_MWh),
             "eta_I": float(P_net.sum() / Q_in.sum()) if Q_in.sum() else float("nan"),
-            "eta_solar": float(eta_s_num / eta_s_den) if eta_s_den else float("nan"),
+            "eta_solar": eta_solar,
             "eta_II": eta_II,
             "active_hours": int(active.sum()),
             "capacity_factor": float(Q_to_pb.mean() / Q_design) if Q_design else float("nan"),

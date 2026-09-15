@@ -953,7 +953,7 @@ def solve_configuration2(
         step["P_net"] = P_turbine - step["P_pumps"]
         step["efficiency"] = step["P_net"] / (step["Q_sg_oil"] + 2 * steam_generator_duty)
         try:
-            # Extra power-block net output per unit of solar heat to the ORC.
+
             step["solar_efficiency"] = (
                 (P_turbine - P_pumps) - P_net_baseline
             ) / Q_to_steam
