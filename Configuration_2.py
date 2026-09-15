@@ -104,7 +104,7 @@ def meteorolgoical_values():
     Gets the DNI from the csv file
     :return:
     """
-    df = pd.read_csv("Timeseries_37.320.csv", skiprows=8)
+    df = pd.read_csv("Timeseries_37.320.csv", skiprows=11)
     df["datetime"] = pd.to_datetime(df["time"], format="%Y%m%d:%H%M", errors="coerce")
     df = df.dropna(subset=["datetime"]).copy()
 
@@ -222,7 +222,7 @@ def solve_power_block(Q_to_steam, heat_in_component, reheater, Steam_network,
                                pr=pr_heat_in if in_service else 1.0)
     reheater.set_attr(Q=Q_to_steam * reheat_fraction,
                       pr=pr_reheater if in_service else 1.0)
-    Steam_network.solve("design",max_iter=100)
+    Steam_network.solve("design",max_iter=200)
     P_turbine = -1 * (sum([i.P.val for i in turbine_list]))
     P_pumps = (sum([i.P.val for i in pump_list]))
     return P_turbine, P_pumps

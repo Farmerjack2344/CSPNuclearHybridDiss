@@ -136,7 +136,7 @@ def meteorolgoical_values():
     Gets the DNI and stuff from the csv file
     :return:
     """
-    df = pd.read_csv("Timeseries_37.320.csv", skiprows=8)
+    df = pd.read_csv("Timeseries_37.320.csv", skiprows=11)
     df["datetime"] = pd.to_datetime(df["time"], format="%Y%m%d:%H%M", errors="coerce")
     df = df.dropna(subset=["datetime"]).copy()
 
@@ -173,6 +173,7 @@ def Q_solar_field(hour_num, DNI, T_amb_K, collector_area, optical_efficiency,
     :param solar_elevation_deg: Solar altitude angle from the weather file
     :return:
     """
+    
     Q_ideal = collector_area * DNI * optical_efficiency
     Q_real = Q_ideal
     cos = cos_theta(day_of_year, hour_num, solar_elevation_deg)
@@ -545,6 +546,7 @@ def solve_andasol1(
             Q_solar - step["Q_defocus"], step["Q_to_storage"], step["Q_from_storage"]
         )
 
+        # If the Heat transfer to power block is greater than 0
         if step["Q_to_pb"] > 0 and Q_to_steam > Q_MIN_BRANCH:
             P_turbine, P_pumps = solve_power_block(Q_to_steam)
             m_steam = s2.m.val
@@ -589,20 +591,7 @@ def solve_andasol1(
         to_GWh = hours / 1e9
         Q_incident = (results["DNI"] * collector_area).sum() * to_GWh
         operating = results["P_turbine"] > 0
-        print("Annual results")
-        print(f"  DNI on the aperture          {Q_incident:8.1f} GWh")
-        print(f"  Collected by the field       {results['Q_solar'].sum() * to_GWh:8.1f} GWh")
-        print(f"  Defocused                    {results['Q_defocus'].sum() * to_GWh:8.1f} GWh")
-        print(f"  Delivered to the power block {results['Q_to_pb'].sum() * to_GWh:8.1f} GWh")
-        print(f"  Gross generation             {results['P_turbine'].sum() * to_GWh:8.1f} GWh")
-        print(f"  Net of pumping               {results['P_net'].sum() * to_GWh:8.1f} GWh")
-        print(f"  Operating hours              {operating.sum():8d} h")
-        print(f"  Equivalent full load hours   "
-              f"{results['P_turbine'].sum() / P_turbine_design:8.0f} h")
-        print(f"  Gross capacity factor        "
-              f"{results['P_turbine'].sum() / (P_turbine_design * len(results)):8.1%}")
-        print()
-        print("Hours by dispatch mode")
+
         print(results["mode"].value_counts().to_string())
         solve_power_block(Q_design_thermal)
         SteamCycle.print_results()

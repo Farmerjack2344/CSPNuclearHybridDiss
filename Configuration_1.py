@@ -65,7 +65,7 @@ def meteorolgoical_values():
     Gets the DNI and stuff from the csv file
     :return:
     """
-    df = pd.read_csv("Timeseries_37.320.csv", skiprows=8)
+    df = pd.read_csv("Timeseries_37.320.csv", skiprows=11)
     df["datetime"] = pd.to_datetime(df["time"], format="%Y%m%d:%H%M", errors="coerce")
     df = df.dropna(subset=["datetime"]).copy()
 

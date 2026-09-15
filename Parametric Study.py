@@ -13,6 +13,10 @@ from AP1000V5 import solve_ap1000
 from Andasol1 import solve_andasol1
 from CoolProp.CoolProp import PropsSI
 
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 
 def get_month(day_number, year=2026):
@@ -23,9 +27,7 @@ def percentage(num_list):
 
     return [x * 100 for x in num_list]
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
+
 
 #-----------------------------------------------------------------------#
 #
@@ -589,6 +591,7 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
 
 def plotting_fluids_2():
     list_of_fluids = [
+        "WATER",
         "ISOPENTANE",
         "ISOBUTANE",
         "CYCLOPENTANE",
@@ -638,22 +641,23 @@ def plotting_fluids_2():
             exergy_efficiency_values.append(1)
 
     fig, ax = pyplot.subplots(2, 2, figsize=(20, 20))
-    ax[0, 0].bar(labels, power_values)
+    ax[0, 0].bar(labels, power_values,color=["orange"] + ["steelblue"] * (len(labels) - 1))
     ax[0, 0].set_ylabel("Power (W)")
     ax[0, 0].set_xlabel("Fluid")
     ax[0, 0].set_title("Power Output by Working Fluids")
 
-    ax[0, 1].bar(labels, percentage(efficiency_values))
+
+    ax[0, 1].bar(labels, percentage(efficiency_values),color=["orange"] + ["steelblue"] * (len(labels) - 1))
     ax[0, 1].set_ylabel("Efficiency (%)")
     ax[0, 1].set_xlabel("Fluid")
     ax[0, 1].set_title("Efficiency by Working Fluids")
 
-    ax[1, 1].bar(labels, percentage(solar_efficiency_values))
+    ax[1, 1].bar(labels, percentage(solar_efficiency_values),color=["orange"] + ["steelblue"] * (len(labels) - 1))
     ax[1, 1].set_ylabel("Efficiency (%)")
     ax[1, 1].set_xlabel("Fluid")
     ax[1, 1].set_title("Solar Efficiency by Working Fluids")
 
-    ax[1, 0].bar(labels, percentage(exergy_efficiency_values))
+    ax[1, 0].bar(labels, percentage(exergy_efficiency_values),color=["orange"] + ["steelblue"] * (len(labels) - 1))
     ax[1, 0].set_ylabel("Exergy (%)")
     ax[1, 0].set_xlabel("Fluid")
     ax[1, 0].set_title("Exergy by Working Fluids")
@@ -661,6 +665,8 @@ def plotting_fluids_2():
     for axis in ax.flat:
         axis.grid(True, axis="y", alpha=0.3)
         axis.tick_params(axis="x", labelrotation=20)
+
+
 
     Title = "Effect of ORC Working Fluid on System Performance"
     fig.suptitle(Title, fontsize=16, fontweight="bold")
@@ -750,25 +756,25 @@ def plotting_evaporator_secondary_2():
     # Power plot
     ax[0, 0].plot([x / 1000 for x in pressure_values], power_values, linewidth=2)
     ax[0, 0].set_ylabel("Power (W)")
-    ax[0, 0].set_xlabel("Pressure (Pa)")
+    ax[0, 0].set_xlabel("Pressure (kPa)")
     ax[0, 0].set_title("Power Output Vs. ORC Superheater inlet", fontsize=13)
 
     # Efficiency Plot
     ax[0, 1].plot([x / 1000 for x in pressure_values], percentage(efficiency_values), linewidth=2)
     ax[0, 1].set_ylabel("Efficiency (%)")
-    ax[0, 1].set_xlabel("Pressure (Pa)")
+    ax[0, 1].set_xlabel("Pressure (kPa)")
     ax[0, 1].set_title("Efficiency Vs.ORC Superheater inlet", fontsize=13)
 
     # Solar Efficiency Plot
     ax[1, 1].plot([x / 1000 for x in pressure_values], percentage(solar_efficiency_values), linewidth=2)
     ax[1, 1].set_ylabel("Efficiency (%)")
-    ax[1, 1].set_xlabel("Pressure (Pa)")
+    ax[1, 1].set_xlabel("Pressure (kPa)")
     ax[1, 1].set_title("Solar Efficiency Vs. ORC Superheater inlet", fontsize=13)
 
     # Exergy Efficiency Plot
     ax[1, 0].plot([x / 1000 for x in pressure_values], percentage(exergy_efficiency_values), linewidth=2)
     ax[1, 0].set_ylabel("Exergy (%)")
-    ax[1, 0].set_xlabel("Pressure (Pa)")
+    ax[1, 0].set_xlabel("Pressure (kPa)")
     ax[1, 0].set_title("Exergy Vs. ORC Superheater inlet", fontsize=13)
 
     ax[0, 0].grid(True)
@@ -827,6 +833,9 @@ def plotting_reheat_fraction_2():
     ax[0, 1].grid(True)
     ax[1, 0].grid(True)
     ax[1, 1].grid(True, alpha=0.3)
+    for axis in ax.flat:
+        axis.xaxis.set_major_locator(MaxNLocator(nbins=10))
+        axis.grid(True, alpha=0.3)
 
     fig.suptitle(
         "Effect of Oil Reheat Fraction  on System Performance",
@@ -957,6 +966,10 @@ def plotting_HP_LP_Turbine_outlets_2():
     ax[0, 1].grid(True)
     ax[1, 0].grid(True)
     ax[1, 1].grid(True, alpha=0.3)
+    for axis in ax.flat:
+        axis.grid(True, alpha=0.3)
+        axis.xaxis.set_major_locator(MaxNLocator(nbins=10))
+
 
     Title = "Effect of Nuclear Condenser Back Pressure and ORC Superheater Inlet Pressure on System Performance(Configuration 1)"
     fig.suptitle(Title, fontsize=16, fontweight="bold")
@@ -975,12 +988,17 @@ def _solve_q_design_month(args):
         if len(cached) == expected_hours:
             return Q_design, cached
 
-    results = solve_configuration2(Q_design_thermal=Q_design, day_number=start_day, n_days=n_days, verbose=False,
+    results = solve_configuration2(Q_design_thermal=Q_design,
+                                   p_nuclear_condenser=90e3,
+                                   p_evaporator_secondary=1.05e6,
+                                   ttd_u_fwh=[2.22,4.8,2.22,4,8,8],
+                                   reheat_fraction=0.01,
+                                   day_number=start_day, n_days=n_days, verbose=False,
                                    results_csv=cache_path, hourly=True, print_results=False)
     return Q_design, results
 
 
-def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.40,q_frac_max=1.00,use_cache=True,):
+def plotting_Q_design_thermal(n_days=30,start_day=212,n_points=10,q_frac_min=0.40,q_frac_max=1.00,use_cache=False,):
     """Month-long Q_design sweep for the solar section (Configuration 2).
 
     Method
@@ -1353,28 +1371,61 @@ def plotting_ttd_u():
         ax[1].set_title("Nuclear Condenser Reject Heat Vs. Terminal Temperature Difference", fontsize=13)
 
         for axis in ax:
-
-            start, end = axis.get_xlim()
-            axis.xaxis.set_ticks(np.linspace(start, end, 12))
+            axis.xaxis.set_major_locator(MaxNLocator(nbins=10))
             axis.grid(True, alpha=0.3)
 
         Title = f"Effect of Terminal Temperature Difference of {FWH} on System Performance"
         fig.suptitle(Title, fontsize=16, fontweight="bold")
 
         pyplot.tight_layout()
-        pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches='tight')  # save BEFORE show
+        pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches='tight')
         pyplot.show()
+
+    # Combined power vs reject heat, coloured by ttd_u, all FWHs on one plot
+    fig, ax = pyplot.subplots(figsize=(9, 7))
+    cmap = pyplot.cm.viridis
+    markers = ["o", "s", "^", "D", "v", "P"]
+
+    for index, FWH in enumerate(FWHs):
+        sc = ax.scatter(
+            power_values[index],
+            Q_nuclear_condenser_values[index],
+            c=ttd_u_values,
+            cmap=cmap,
+            marker=markers[index % len(markers)],
+            s=40,
+            edgecolors="k",
+            linewidths=0.3,
+            label=FWH,
+        )
+
+    cbar = fig.colorbar(sc, ax=ax)
+    cbar.set_label("Terminal Temperature Difference (K)")
+    ax.set_xlabel("Power (W)")
+    ax.set_ylabel("Q, Condenser Reject Heat (W)")
+    ax.set_title("Power Vs. Condenser Reject Heat Across TTD Sweep", fontsize=14, fontweight="bold")
+    ax.legend(title="FWH", loc="best")
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=10))
+    ax.grid(True, alpha=0.3)
+
+    Combined_Title = "Power vs Condenser Reject Heat Trade Off Across FWHs"
+    pyplot.tight_layout()
+    pyplot.savefig(fr"ModelResults\{Combined_Title}")
+
+
 if __name__ == "__main__":
     # Config 2
-    # plotting_fluids_2()
-    #plotting_p_nuclear_condenser_2()
-    #plotting_evaporator_secondary_2()
-    # plotting_HP_LP_Turbine_outlets_2()
-    # plotting_T_pinch_2()
-    # plotting_reheat_fraction_2()
-    plotting_Q_design_thermal(start_day=212)
-    # plotting_Q_design_thermal(start_day=1)
+
+    # plotting_p_nuclear_condenser_2()
+    # plotting_evaporator_secondary_2()
     #plotting_ttd_u()
+    #plotting_HP_LP_Turbine_outlets_2()
+    # plotting_T_pinch_2()
+    #plotting_reheat_fraction_2()
+    plotting_Q_design_thermal(start_day=212)
+    plotting_Q_design_thermal(start_day=1)
+    #plotting_fluids_2()
+
 
     # Config 1
     # plotting_mass_flow_fraction_1()
@@ -1385,4 +1436,6 @@ if __name__ == "__main__":
     # plotting_T_lp_inlet_1()
     # plotting_ttd_u_1()
     # plotting_seasonal_day_1()
-    plotting_Q_design_thermal_1(start_day=212)
+    #plotting_Q_design_thermal_1(start_day=212)
+
+    #plotting_comparison()
