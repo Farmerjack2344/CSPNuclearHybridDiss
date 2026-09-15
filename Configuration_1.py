@@ -240,6 +240,7 @@ def solve_configuration1(
         reheat_fraction=21.479 / (118.958 + 21.479),  # solar duty sent to the reheater
         #
         main_mass_flow_bleed=66/1891,
+        fix_main_steam_bleed=False,
         Q_design_thermal = 118.958e6 + 21.479e6,
 
         # --- Live steam state ---
@@ -271,6 +272,7 @@ def solve_configuration1(
         p_cw=1.2e5,                          # Pa
         # --- Simulation window / output ---
         day_number=183,
+        n_days=1,
         verbose=True,
         results_csv="ModelResults/configuration_1_hourly.csv",
         design_point_out=None,
@@ -682,6 +684,9 @@ def solve_configuration1(
 
     # Interstage heater drains.
     s31.set_attr(x=0, m0=66, h0=1.179e6)
+    if fix_main_steam_bleed:
+        s1c.set_attr(m=main_mass_flow * main_mass_flow_bleed)  # pin bleed so the mass-flow-fraction sweep actually moves
+        s31.set_attr(x=None)  # release drain quality so m and Q do not over-specify interstage heater 2
     s32.set_attr(m0=66, h0=1.179e6)
     s33.set_attr(x=0, m0=60, h0=1.079e6)
     s34.set_attr(m0=126, h0=1.132e6)
@@ -776,15 +781,17 @@ def solve_configuration1(
 
     P_turbine_design, P_pumps_design = solve_design_point()
 
+    tank.m_hot = 0.0  # cold-start the store so Config 1 parametric runs cannot inherit SoC
+    tank.m_cold = tank.m_total
+
     # ---------------------------------------------------------------------------
     # Annual simulation
     # ---------------------------------------------------------------------------
-    day = (24 * day_number)
-    eod = day + 24
+    start = max(24 * day_number - 1, 0)  # same window indexing as Configuration 2
     tick = 0
-    hourly_rows = DNI_values[day:eod] if hourly else DNI_values[day + 11: day + 12]
+    hourly_rows = DNI_values[start:start + 24 * n_days] if hourly else DNI_values[start + 12:start + 13]
     for hour_num, day_of_year, DNI, T_amb, solar_elevation in hourly_rows:
-        progress_total = len(DNI_values[day:eod])
+        progress_total = len(hourly_rows)
         progress = tick / progress_total
 
 
@@ -906,9 +913,12 @@ def solve_configuration1(
                             """)
 
 
-    results = pd.DataFrame(log)
-    if results_csv is not None:
-        results.to_csv(results_csv, index=False)
+    if hourly:
+        results = pd.DataFrame(log)
+        if results_csv is not None:
+            results.to_csv(results_csv, index=False)
+    else:
+        results = log[-1] if log else {}  # scalar KPIs for design-point parametric sweeps
 
     # The hourly run leaves the networks wherever the last hour put them, so
     # anything wanting to inspect the plant itself gets it back on design first.

@@ -32,57 +32,281 @@ import matplotlib.pyplot as plt
 #Config 1 Study
 #
 #-----------------------------------------------------------------------#
+def _config1_kpis(results):
+    if isinstance(results, pd.DataFrame):
+        results = results.iloc[-1]
+    return (
+        float(results["P_net"]),
+        float(results["efficiency"]),
+        float(results["solar_efficiency"]),
+        float(results["efficiency_II"]),
+    )
+
+
+def _solve_config1_point(**kwargs):
+    try:
+        return _config1_kpis(solve_configuration1(hourly=False, print_results=False, verbose=False, results_csv=None, **kwargs))
+    except Exception:
+        return (float("nan"), float("nan"), float("nan"), float("nan"))
+
+
+def _plot_config1_four(x, power, eta, eta_s, eta2, xlabel, titles, suptitle):
+    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
+    series = (power, percentage(eta), percentage(eta2), percentage(eta_s))
+    ylabels = ("Power (W)", "Efficiency (%)", "Exergy (%)", "Efficiency (%)")
+    axes = (ax[0, 0], ax[0, 1], ax[1, 0], ax[1, 1])
+    for axis, y, ylabel, title in zip(axes, series, ylabels, titles):
+        axis.plot(x, y, linewidth=2)
+        axis.set_xlabel(xlabel)
+        axis.set_ylabel(ylabel)
+        axis.set_title(title, fontsize=13)
+        axis.grid(True, alpha=0.3)
+    fig.suptitle(suptitle, fontsize=16, fontweight="bold")
+    pyplot.tight_layout()
+    pyplot.savefig(fr"ModelResults\{suptitle}", dpi=150, bbox_inches="tight")
+    pyplot.show()
+
+
 def plotting_mass_flow_fraction_1():
-    #2D oil and working fluid
-    mass_flow_fraction_values = np.linspace(0.05, 0.5, 70)
+    """Measures net power, first-law efficiency, solar incremental efficiency and exergy efficiency against the live-steam fraction bled to the solar reheater.
+
+    This split is the mass coupling between the solar field and the nuclear Rankine cycle, so it shows how much HP turbine work is given up to raise LP admission enthalpy. The curve is what a designer would cite when choosing a bleed that does not starve the HP cylinder or leave the moisture-separator reheater under-fired. Configuration 2 has no live-steam bleed into a solar reheater, so this result is exclusive to Configuration 1.
+    """
+    mass_flow_fraction_values = np.linspace(0.020, 0.042, 16)
     power_values = []
     efficiency_values = []
     solar_efficiency_values = []
     exergy_efficiency_values = []
-    for reheat_fraction in mass_flow_fraction_values:
-        results = solve_configuration1(main_mass_flow_bleed=reheat_fraction, hourly=False, print_results=False)
-        power_values.append(results["P_net"])
-        efficiency_values.append(results["efficiency"])
-        solar_efficiency_values.append(results["solar_efficiency"])
-        exergy_efficiency_values.append(results["efficiency_II"])
+    for bleed in mass_flow_fraction_values:
+        power, eta, eta_s, eta2 = _solve_config1_point(main_mass_flow_bleed=bleed, fix_main_steam_bleed=True)
+        power_values.append(power)
+        efficiency_values.append(eta)
+        solar_efficiency_values.append(eta_s)
+        exergy_efficiency_values.append(eta2)
 
-    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
-    # Power plot
-    ax[0, 0].plot([x * 100 for x in mass_flow_fraction_values], power_values, linewidth=2)
-    ax[0, 0].set_ylabel("Power (W)")
-    ax[0, 0].set_xlabel("Pressure (Pa)")
-    ax[0, 0].set_title("Power Output Vs. Oil Reheat Fraction", fontsize=13)
-
-    # Efficiency Plot
-    ax[0, 1].plot([x * 100 for x in mass_flow_fraction_values], percentage(efficiency_values), linewidth=2)
-    ax[0, 1].set_ylabel("Efficiency (%)")
-    ax[0, 1].set_xlabel("Pressure (Pa)")
-    ax[0, 1].set_title("Efficiency Vs. Oil Reheat Fraction", fontsize=13)
-
-    # Solar Efficiency Plot
-    ax[1, 1].plot([x * 100 for x in mass_flow_fraction_values], percentage(solar_efficiency_values), linewidth=2)
-    ax[1, 1].set_ylabel("Efficiency (%)")
-    ax[1, 1].set_xlabel("Pressure (Pa)")
-    ax[1, 1].set_title("Solar Efficiency Vs. Oil Reheat Fraction", fontsize=13)
-
-    # Exergy Efficiency Plot
-    ax[1, 0].plot([x * 100 for x in mass_flow_fraction_values], percentage(exergy_efficiency_values), linewidth=2)
-    ax[1, 0].set_ylabel("Exergy (%)")
-    ax[1, 0].set_xlabel("Pressure (Pa)")
-    ax[1, 0].set_title("Exergy Vs. Oil Reheat Fraction", fontsize=13)
-
-    ax[0, 0].grid(True)
-    ax[0, 1].grid(True)
-    ax[1, 0].grid(True)
-    ax[1, 1].grid(True, alpha=0.3)
-
-    fig.suptitle(
-        "Effect of Oil Reheat Fraction  on System Performance (Configuration 1)",
-        fontsize=16,
-        fontweight="bold"
+    _plot_config1_four(
+        [x * 100 for x in mass_flow_fraction_values],
+        power_values, efficiency_values, solar_efficiency_values, exergy_efficiency_values,
+        "Live-steam bleed fraction (%)",
+        (
+            "Power Output Vs. Live-Steam Bleed Fraction",
+            "Efficiency Vs. Live-Steam Bleed Fraction",
+            "Exergy Vs. Live-Steam Bleed Fraction",
+            "Solar Efficiency Vs. Live-Steam Bleed Fraction",
+        ),
+        "Effect of Live-Steam Bleed Fraction on System Performance (Configuration 1)",
     )
 
+
+def plotting_p_condenser_1(season="summer"):
+    """Measures net power, first-law efficiency, solar incremental efficiency and exergy efficiency against condenser backpressure at the chosen winter or summer cooling-water temperatures.
+
+    Rankine expansion work is uniquely sensitive to sink pressure, and Configuration 1 rejects heat to cooling water rather than to an ORC boiler, so seasonal cooling-water temperature appears directly as vacuum. The sweep is the evidence for how much summer derate versus winter gain the hybrid plant should be credited with. Changing season retargets both the cooling-water range and the pressure window so the condenser pinch stays physically feasible.
+    """
+    seasons = {
+        "winter": dict(T_cw_in=283.15, T_cw_out=293.15, p_min=4.5e3, p_max=10.0e3),
+        "summer": dict(T_cw_in=298.15, T_cw_out=310.15, p_min=8.0e3, p_max=18.0e3),
+    }
+    spec = seasons[season.lower()]
+    p_floor = PropsSI("P", "T", spec["T_cw_out"], "Q", 0, "Water") + 1.5e3  # keep condenser above the cooling-water bubble point
+    pressure_values = np.linspace(max(spec["p_min"], p_floor), spec["p_max"], 25)
+    power_values = []
+    efficiency_values = []
+    solar_efficiency_values = []
+    exergy_efficiency_values = []
+    for pressure in pressure_values:
+        power, eta, eta_s, eta2 = _solve_config1_point(
+            p_condenser=pressure, T_cw_in=spec["T_cw_in"], T_cw_out=spec["T_cw_out"])
+        power_values.append(power)
+        efficiency_values.append(eta)
+        solar_efficiency_values.append(eta_s)
+        exergy_efficiency_values.append(eta2)
+
+    label = season.lower().capitalize()
+    _plot_config1_four(
+        [p / 1000 for p in pressure_values],
+        power_values, efficiency_values, solar_efficiency_values, exergy_efficiency_values,
+        "Condenser pressure (kPa)",
+        (
+            f"Power Output Vs. Condenser Pressure ({label})",
+            f"Efficiency Vs. Condenser Pressure ({label})",
+            f"Exergy Vs. Condenser Pressure ({label})",
+            f"Solar Efficiency Vs. Condenser Pressure ({label})",
+        ),
+        f"Effect of Condenser Pressure on System Performance in {label} (Configuration 1)",
+    )
+
+
+def plotting_reheat_fraction_1():
+    """Measures net power, first-law efficiency, solar incremental efficiency and exergy efficiency against the fraction of solar duty sent to the reheater rather than the live-steam superheater.
+
+    Configuration 1 injects solar heat into the nuclear steam itself, so this energy split changes HP inlet superheat and LP reheat together. That trade-off is what you discuss when arguing that the solar field is a topping heater on the AP1000 cycle rather than a separate power block. The result set is also the energy-side counterpart of the live-steam bleed test, because duty split and bleed mass are the two ways of stating the same integration.
+    """
+    reheat_fraction_values = np.linspace(0.05, 0.40, 20)
+    power_values = []
+    efficiency_values = []
+    solar_efficiency_values = []
+    exergy_efficiency_values = []
+    for reheat_fraction in reheat_fraction_values:
+        power, eta, eta_s, eta2 = _solve_config1_point(reheat_fraction=reheat_fraction)
+        power_values.append(power)
+        efficiency_values.append(eta)
+        solar_efficiency_values.append(eta_s)
+        exergy_efficiency_values.append(eta2)
+
+    _plot_config1_four(
+        [x * 100 for x in reheat_fraction_values],
+        power_values, efficiency_values, solar_efficiency_values, exergy_efficiency_values,
+        "Solar reheat duty fraction (%)",
+        (
+            "Power Output Vs. Solar Reheat Fraction",
+            "Efficiency Vs. Solar Reheat Fraction",
+            "Exergy Vs. Solar Reheat Fraction",
+            "Solar Efficiency Vs. Solar Reheat Fraction",
+        ),
+        "Effect of Solar Reheat Fraction on System Performance (Configuration 1)",
+    )
+
+
+def plotting_T_field_out_1():
+    """Measures net power, first-law efficiency, solar incremental efficiency and exergy efficiency against solar-field outlet temperature.
+
+    Higher oil temperature raises steam superheat and reheat but increases collector thermal losses and approaches the Therminol VP-1 limit. The nuclear steam already sets a high source temperature, so the remaining solar temperature rise is small and this sweep shows whether chasing hotter oil is worth the field loss. Those numbers support the claim that Configuration 1 is temperature-constrained by the HTF rather than by the Rankine cycle.
+    """
+    T_values = np.linspace(630.0, 666.15, 15)
+    power_values = []
+    efficiency_values = []
+    solar_efficiency_values = []
+    exergy_efficiency_values = []
+    for T_field_out in T_values:
+        power, eta, eta_s, eta2 = _solve_config1_point(T_field_out=T_field_out)
+        power_values.append(power)
+        efficiency_values.append(eta)
+        solar_efficiency_values.append(eta_s)
+        exergy_efficiency_values.append(eta2)
+
+    _plot_config1_four(
+        [T - 273.15 for T in T_values],
+        power_values, efficiency_values, solar_efficiency_values, exergy_efficiency_values,
+        "Field outlet temperature (C)",
+        (
+            "Power Output Vs. Field Outlet Temperature",
+            "Efficiency Vs. Field Outlet Temperature",
+            "Exergy Vs. Field Outlet Temperature",
+            "Solar Efficiency Vs. Field Outlet Temperature",
+        ),
+        "Effect of Solar Field Outlet Temperature on System Performance (Configuration 1)",
+    )
+
+
+def plotting_T_lp_inlet_1():
+    """Measures net power, first-law efficiency, solar incremental efficiency and exergy efficiency against LP-turbine admission temperature after the solar reheater.
+
+    This is the steam state the Configuration 1 solar reheater exists to produce, so the sweep is a direct test of the integration concept. It shows how much extra LP expansion work is bought per kelvin of reheat and where pinch or moisture would stop you. That is the plot to cite when comparing this layout with a conventional moisture-separator reheater on an unaugmented AP1000.
+    """
+    T_values = np.linspace(500.0, 560.0, 16)
+    power_values = []
+    efficiency_values = []
+    solar_efficiency_values = []
+    exergy_efficiency_values = []
+    for T_lp_inlet in T_values:
+        power, eta, eta_s, eta2 = _solve_config1_point(T_lp_inlet=T_lp_inlet)
+        power_values.append(power)
+        efficiency_values.append(eta)
+        solar_efficiency_values.append(eta_s)
+        exergy_efficiency_values.append(eta2)
+
+    _plot_config1_four(
+        [T - 273.15 for T in T_values],
+        power_values, efficiency_values, solar_efficiency_values, exergy_efficiency_values,
+        "LP admission temperature (C)",
+        (
+            "Power Output Vs. LP Admission Temperature",
+            "Efficiency Vs. LP Admission Temperature",
+            "Exergy Vs. LP Admission Temperature",
+            "Solar Efficiency Vs. LP Admission Temperature",
+        ),
+        "Effect of LP Admission Temperature on System Performance (Configuration 1)",
+    )
+
+
+def plotting_ttd_u_1():
+    """Measures net power, first-law efficiency, solar incremental efficiency and exergy efficiency against closed-heater terminal temperature difference on the AP1000 feedwater train.
+
+    Larger TTD cheapens the heaters and dumps more irreversibility into the feedwater train, which changes both nuclear heat rate and the room left for solar heat. Configuration 1 keeps the DCD heater train, so this is the sensitivity that links the hybrid to the licensed feedwater design. The results let you say whether the 4 F TTD is a binding constraint on the solar integration or a free parameter.
+    """
+    ttd_values = np.linspace(2.222, 12.0, 15)
+    power_values = []
+    efficiency_values = []
+    solar_efficiency_values = []
+    exergy_efficiency_values = []
+    for ttd_u in ttd_values:
+        power, eta, eta_s, eta2 = _solve_config1_point(ttd_u_fwh=ttd_u)
+        power_values.append(power)
+        efficiency_values.append(eta)
+        solar_efficiency_values.append(eta_s)
+        exergy_efficiency_values.append(eta2)
+
+    _plot_config1_four(
+        ttd_values,
+        power_values, efficiency_values, solar_efficiency_values, exergy_efficiency_values,
+        "Terminal temperature difference (K)",
+        (
+            "Power Output Vs. Heater TTD",
+            "Efficiency Vs. Heater TTD",
+            "Exergy Vs. Heater TTD",
+            "Solar Efficiency Vs. Heater TTD",
+        ),
+        "Effect of Feedwater Heater TTD on System Performance (Configuration 1)",
+    )
+
+
+def plotting_seasonal_day_1(winter_day=15, summer_day=212):
+    """Measures hourly net power, first-law efficiency, solar incremental efficiency and exergy efficiency for one winter day against one summer day, each with matching condenser vacuum and cooling-water temperatures.
+
+    The overlay isolates solar resource from heat-sink temperature in a way a single Q_design month cannot. Configuration 1's condenser sees the ambient through cooling water, so summer versus winter is both a DNI story and a Rankine backpressure story. That paired day is the figure to discuss in a seasonal-operation chapter when claiming that the hybrid's condenser, not only the field, shifts with the weather.
+    """
+    cases = {
+        "Winter": dict(day_number=winter_day, p_condenser=6.0e3, T_cw_in=283.15, T_cw_out=293.15, colour="#1f77b4"),
+        "Summer": dict(day_number=summer_day, p_condenser=12.0e3, T_cw_in=298.15, T_cw_out=310.15, colour="#d62728"),
+    }
+    traces = {}
+    for name, spec in cases.items():
+        df = solve_configuration1(
+            day_number=spec["day_number"], n_days=1, hourly=True, verbose=False,
+            print_results=False, results_csv=None,
+            p_condenser=spec["p_condenser"], T_cw_in=spec["T_cw_in"], T_cw_out=spec["T_cw_out"])
+        traces[name] = (
+            pd.to_numeric(df["hour"], errors="coerce"),
+            pd.to_numeric(df["P_net"], errors="coerce"),
+            pd.to_numeric(df["efficiency"], errors="coerce"),
+            pd.to_numeric(df["solar_efficiency"], errors="coerce"),
+            pd.to_numeric(df["efficiency_II"], errors="coerce"),
+            spec["colour"],
+        )
+
+    fig, ax = pyplot.subplots(2, 2, figsize=(12, 12))
+    panels = (
+        (ax[0, 0], 1, "Power (W)", False, "Net Power vs. Hour of Day"),
+        (ax[0, 1], 2, "Efficiency (%)", True, "Efficiency vs. Hour of Day"),
+        (ax[1, 0], 4, "Exergy (%)", True, "Exergy vs. Hour of Day"),
+        (ax[1, 1], 3, "Efficiency (%)", True, "Solar Efficiency vs. Hour of Day"),
+    )
+    for axis, idx, ylabel, as_percent, title in panels:
+        for name, trace in traces.items():
+            y = percentage(trace[idx]) if as_percent else trace[idx]
+            axis.plot(trace[0], y, color=trace[5], linewidth=2, label=name)
+        axis.set_xlabel("Hour of day")
+        axis.set_ylabel(ylabel)
+        axis.set_title(title, fontsize=13)
+        axis.set_xlim(0, 23)
+        axis.grid(True, alpha=0.3)
+        axis.legend()
+
+    Title = "Winter vs Summer Day with Seasonal Condenser Vacuum (Configuration 1)"
+    fig.suptitle(Title, fontsize=16, fontweight="bold")
     pyplot.tight_layout()
+    pyplot.savefig(fr"ModelResults\{Title}", dpi=150, bbox_inches="tight")
     pyplot.show()
 
 
@@ -101,24 +325,9 @@ def _solve_q_design_month_1(args):
 
 
 def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0.40,q_frac_max=1.00,use_cache=True,):
-    """Month-long Q_design sweep for the solar section (Configuration 2).
+    """Measures month-long net energy, energy-weighted first-law, solar and exergy efficiencies, power-block active hours, thermal capacity factor, defocused fraction, output fluctuation, diurnal power and tank SoC, daily energy spread and dispatch-mode hours against solar-section thermal rating.
 
-    Method
-    ------
-    Overlaying 10 raw 720-hour traces is unreadable, so each Q_design is compared——
-    at two levels that share the same weather window:
-
-    1. Monthly energy-weighted KPIs vs Q_design (the parametric result).
-       Totals, not hourly averages, so shutdown hours cannot inflate efficiency.
-    2. Fluctuation shape, held on a common time axis:
-       - mean diurnal P_net and tank SoC (hour-of-day averaged over the month)
-       - box plot of daily net energy (day-to-day spread at each Q_design)
-       - stacked dispatch-mode hours (direct test of the "more active hours" claim)
-
-
-
-    Results are cached under ModelResults/q_design_study/ so replotting does not
-    rerun TESPy. Drop those CSVs, or set use_cache=False, to force a new sweep.
+    This is the storage-sizing question: a larger Q_design harvests more noon sun but spends more hours below minimum load and cycles the tank differently. Configuration 1 never shuts the nuclear block, so Q_design only moves the solar share and the store, which is a different story from a standalone CSP plant or from Configuration 2's ORC-coupled solar section. Results are cached under ModelResults/q_design_study_config1 so they cannot be confused with the Configuration 2 sweep.
     """
     nuclear_heat_input = 2 * 1707e6
     dispatch_modes = [
@@ -195,7 +404,7 @@ def plotting_Q_design_thermal_1(n_days=30,start_day=212,n_points=10,q_frac_min=0
         }
 
     q_values = [float(q) for q in Q_DESIGN_REF * np.linspace(q_frac_min, q_frac_max, n_points)]
-    cache_dir = os.path.join("ModelResults", "q_design_study")
+    cache_dir = os.path.join("ModelResults", "q_design_study_config1")  # exclusive Config 1 cache so Config 2 CSVs are not reused
     os.makedirs(cache_dir, exist_ok=True)
     expected_hours = 24 * n_days
 
@@ -1160,4 +1369,12 @@ if __name__ == "__main__":
     #plotting_ttd_u()
 
     # Config 1
+    # plotting_mass_flow_fraction_1()
+    # plotting_p_condenser_1(season="summer")
+    # plotting_p_condenser_1(season="winter")
+    # plotting_reheat_fraction_1()
+    # plotting_T_field_out_1()
+    # plotting_T_lp_inlet_1()
+    # plotting_ttd_u_1()
+    # plotting_seasonal_day_1()
     plotting_Q_design_thermal_1(start_day=212)
